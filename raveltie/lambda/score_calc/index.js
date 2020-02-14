@@ -25,7 +25,14 @@ const geolocation = require('geolocation-utils')
 const dynamo = new doc.DynamoDB();
 
 
-var imeisMap = new Map()
+var imeisMap = new Map();
+var zones = [
+    {'zone':'A','radius':14484},
+    {'zone':'B','radius':9656},
+    {'zone':'C','radius':4828},
+    {'zone':'D','radius':2414},
+    {'zone':'E','radius':1255}
+];
 
 exports.handler = (event, context, callback) => {
     //console.log('Received event:', JSON.stringify(event, null, 2));
@@ -38,6 +45,43 @@ exports.handler = (event, context, callback) => {
         },
     });
 
+    pullRaveltieData();
+
+
+    imeisMap.forEach(function(mainImei, mainImeiKey) {
+        
+        zones.forEach(function(zV,zI,zA) {
+            calculateScore(mainImei.locations,zV)
+        });
+
+    });
+
+    
+    //geolocation
+    const location1 = {lat: 51, lon: 4};
+    const location2 = {lat: 51.001, lon: 4.001 };
+    console.log(geolocation.headingDistanceTo(location1, location2)) ;
+    
+
+};
+
+function calculateScore(locations, zone) {
+    var boundingBox = geolocation.getBoundingBox(locations, zone.radius);
+            imeisMap.forEach(function(secondaryImei,secondaryImeiKey){
+                secondaryImei.locations.forEach(function(locV,locI,locA) {
+                    var inside = geolocation.insideBoundingBox(locV,boundingBox);
+                    if(inside) {
+                        mainImei.overlapping.push(secondaryImei.imei);
+                        continue;//skip to next secondaryImei
+                    }
+                });
+                //once all secondary Imeis are processed we can calculate new score for mainImei
+
+            });
+};
+
+
+function pullRaveltieData() {
     const now = new Date();
     var last24Hours = date.addDays(now,-1);
 
@@ -65,7 +109,7 @@ exports.handler = (event, context, callback) => {
                     imeiMapItem = imeisMap.get(value.imei);
                 } else {
                     imeisMap.set(
-                        value.imei,{'imei':value.imei,'score':0,'locations':[]});
+                        value.imei,{'imei':value.imei,'score':0,'locations':[],'overlapping':[]});
                     imeiMapItem = imeisMap.get(value.imei);
                 }
 
@@ -74,20 +118,12 @@ exports.handler = (event, context, callback) => {
                 } else {
                     imeiMapItem.locations.push(
                         {'lat':value.lat, 'lon':value.lon, 'timestamp':value.timestamp});
-                    console.log( JSON.stringify(imeiMapItem.locations));
+                    // console.log( JSON.stringify(imeiMapItem.locations));
                 }
             });
         
        }
     });
-
-    
-    //geolocation
-    const location1 = {lat: 51, lon: 4}
-    const location2 = {lat: 51.001, lon: 4.001 }
-    console.log(geolocation.headingDistanceTo(location1, location2)) 
-    
-
 };
 
 
