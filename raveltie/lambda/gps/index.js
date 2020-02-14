@@ -38,9 +38,9 @@ exports.handler = (event, context, callback) => {
     //     case 'POST':
     //         dynamo.putItem(JSON.parse(event.body), done);
     //         break;
-    //     case 'PUT':
-    //         dynamo.updateItem(JSON.parse(event.body), done);
-    //         break;
+        // case 'PUT':
+        //     dynamo.updateItem(JSON.parse(event.body), done);
+        //     break;
     //     default:
     //         done(new Error(`Unsupported method "${event.httpMethod}"`));
     // }
