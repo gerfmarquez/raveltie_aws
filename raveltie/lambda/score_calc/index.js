@@ -50,8 +50,8 @@ exports.handler = (event, context, callback) => {
 
     imeisMap.forEach(function(mainImei, mainImeiKey) {
         
-        zones.forEach(function(zV,zI,zA) {
-            calculateScore(mainImei.locations,zV)
+        zones.forEach(function(zoneValue,zI,zA) {
+            calculateScoreForZone(mainImei.locations,zoneValue);
         });
 
     });
@@ -65,20 +65,32 @@ exports.handler = (event, context, callback) => {
 
 };
 
-function calculateScore(locations, zone) {
+function calculateScoreForZone(locations, zone) {
     var boundingBox = geolocation.getBoundingBox(locations, zone.radius);
             imeisMap.forEach(function(secondaryImei,secondaryImeiKey){
-                secondaryImei.locations.forEach(function(locV,locI,locA) {
-                    var inside = geolocation.insideBoundingBox(locV,boundingBox);
+                secondaryImei.locations.forEach(function(locations,index,array) {
+                    var inside = geolocation.insideBoundingBox(locations,boundingBox);
                     if(inside) {
-                        mainImei.overlapping.push(secondaryImei.imei);
+                        mainImei.overlapping.push({'imei':secondaryImei.imei});
                         continue;//skip to next secondaryImei
                     }
                 });
-                //once all secondary Imeis are processed we can calculate new score for mainImei
+                
 
             });
-};
+            //once all secondary Imeis are processed we can calculate new score for mainImei
+            mainImei.overlapping.forEach(function(overlapping, index, array) {
+                var overlappingImei = imeisMap.get(overlapping.imei);
+
+                overlappingImei.locations.forEach(function(secondaryLocation, secIndex, secArray)) {
+                    //@TODO find closest matching timestamp for main and secondary locations
+                    //@TODO add attribute of location accuracy and sutract it from distance calculation
+
+                }
+            });
+            //discard mainImei and delete from database but increase secondaryImei score too
+            //@TODO 
+};          
 
 
 function pullRaveltieData() {
