@@ -46,6 +46,8 @@ exports.handler = (event, context, callback) => {
     });
     console.log("pullRaveltieData");
 
+
+
     pullRaveltieData(function callback() {
         console.log("pullRaveltieData callback");
 
@@ -147,62 +149,68 @@ function processRaveltieData() {
 
 
 function pullRaveltieData(callback) {
+
     const now = new Date();
     var last24Hours = date.addDays(now,-1);
 
     //get all locations/scores of all imeis for last 24 hours
     var scan = {
       TableName : 'raveltie',
-      Limit : 30
+      Limit : 30,
       //FilterExpression: '',//'#ts > :greatherthan',
       //ExpressionAttributeValues: {
         //':greatherthan': last24Hours.getTime().toString()
       //},
       //ExpressionAttributeNames : {}//'#ts':'timestamp'}
     };
-    var LastEvaluatedKey = {};
-    var maxPages = 1;
+    
+    scanning(scan, callback);
 
-    while(typeof LastEvaluatedKey != "undefined") {
+};
+function scanning(scan,callback) {
+
+    dynamo.scan(scan, function(err, data) {
+        console.log("dynamo.scan");
+       if (err) {
+        console.log(err);
+       } else {
+        console.log("last evaluated: "+JSON.stringify(data.LastEvaluatedKey));
+        if(typeof data.LastEvaluatedKey != "undefined") {
+            scan.ExclusiveStartKey = data.LastEvaluatedKey;
+            scanning(scan,callback);
+        } else {
+            callback();
+        }
         
-        dynamo.scan(scan, function(err, data) {
-            console.log("dynamo.scan");
-           if (err) {
-            console.log(err);
-           } else {
-            LastEvaluatedKey = data.LastEvaluatedKey;
-            console.log("last evaluated: "+JSON.stringify(LastEvaluatedKey));
-            // LastEvaluatedKey = data.LastEvaluatedKey;
+        // LastEvaluatedKey = data.LastEvaluatedKey;
 
-            // console.log(JSON.stringify(data));
-            var imeisArray = data.Items;
+        // console.log(JSON.stringify(data));
+        // var imeisArray = data.Items;
 
-            // imeisArray.forEach(function(value, index, array) {
-            //     // console.log("imeisArray.forEach");
-            //     var imeiMapItem = null;
-            //     if(imeisMap.has(value.imei)) {
-            //         imeiMapItem = imeisMap.get(value.imei);
-            //     } else {
-            //         imeisMap.set(
-            //             value.imei,{'imei':value.imei,'score':0,'locations':[],'overlapping':[]});
-            //         imeiMapItem = imeisMap.get(value.imei);
-            //     }
+        // imeisArray.forEach(function(value, index, array) {
+        //     // console.log("imeisArray.forEach");
+        //     var imeiMapItem = null;
+        //     if(imeisMap.has(value.imei)) {
+        //         imeiMapItem = imeisMap.get(value.imei);
+        //     } else {
+        //         imeisMap.set(
+        //             value.imei,{'imei':value.imei,'score':0,'locations':[],'overlapping':[]});
+        //         imeiMapItem = imeisMap.get(value.imei);
+        //     }
 
-            //     if(value.timestamp === 'score') {
-            //         imeiMapItem.score = value.score;
-            //     } else {
-            //         imeiMapItem.locations.push(
-            //             {'lat':Number(value.lat), 'lon':Number(value.lon),
-            //             'accuracy':Number(value.accuracy),
-            //             'timestamp':Number(value.timestamp)});
-            //         // console.log( JSON.stringify(imeiMapItem.locations));
-            //     }
-            // });
-            // callback();
-           }
-        });
-    }
-
+        //     if(value.timestamp === 'score') {
+        //         imeiMapItem.score = value.score;
+        //     } else {
+        //         imeiMapItem.locations.push(
+        //             {'lat':Number(value.lat), 'lon':Number(value.lon),
+        //             'accuracy':Number(value.accuracy),
+        //             'timestamp':Number(value.timestamp)});
+        //         // console.log( JSON.stringify(imeiMapItem.locations));
+        //     }
+        // });
+        // callback();
+       }
+    });
 };
 
 
