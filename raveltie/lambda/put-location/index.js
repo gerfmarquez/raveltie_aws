@@ -25,36 +25,28 @@ exports.handler = (event, context, callback) => {
             'Content-Type': 'application/json',
         },
     });
+    console.log(event);
 
-    switch (event.httpMethod) {
-        case 'DELETE':
-            // dynamo.deleteItem(JSON.parse(event.body), done);
-            done(new Error(`Unsupported method "${event.httpMethod}"`));
-            break;
-        case 'GET':
-            // dynamo.scan({ TableName: event.queryStringParameters.TableName }, done);
-            done(new Error(`Unsupported method "${event.httpMethod}"`));
-            break;
-        case 'POST':
-            // dynamo.putItem(JSON.parse(event.body), done);
-            done(new Error(`Unsupported method "${event.httpMethod}"`));
-            break;
-        case 'PUT':
-            // dynamo.updateItem(JSON.parse(event.body), done);
-            dynamo.putItem(Item, done);
-            break;
-        default:
-            done(new Error(`Unsupported method "${event.httpMethod}"`));
-    }
+	dynamo.putItem(	
+	{
+	    'TableName':'raveltie',
+	    'Item': {
+	        'imei': event.queryStringParameters.imei,
+	        'timestamp': event.queryStringParameters.timestamp,
+	        'lat': event.queryStringParameters.lat,
+	        'lon': event.queryStringParameters.lon,
+	        'accuracy': event.queryStringParameters.accuracy
+	    }
+	}, done);
+	dynamo.putItem(	
+	{
+	    'TableName':'raveltie',
+	    'Item': {
+	        'imei': event.queryStringParameters.imei,
+	        'timestamp': "score"
+	    }
+	}, done);
 };
 
 
-var Item = {
-    TableName:'raveltie',
-    Item: {
-        imei:'1',
-        timestamp:'1582085278460',
-        lat:'42.28',
-        lon:'-83.78'
-    }
-};
+

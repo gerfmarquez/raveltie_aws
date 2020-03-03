@@ -44,98 +44,165 @@ exports.handler = (event, context, callback) => {
             'Content-Type': 'application/json',
         },
     });
+    console.log("pullRaveltieData");
 
-    pullRaveltieData();
+    pullRaveltieData(function callback() {
+        console.log("pullRaveltieData callback");
 
-
-    imeisMap.forEach(function(mainImei, mainImeiKey) {
-        
-        zones.forEach(function(zoneValue,zI,zA) {
-            calculateScoreForZone(mainImei.locations,zoneValue);
-        });
-
+        processRaveltieData();
     });
+    // var locations = [{lat: "51", lon: "4", etc:"asdf"},{lat: "51.001", lon: "4.001" , etc:"asdf"}]
+    // console.log(geolocation.getBoundingBox(locations));
 
     
-    //geolocation
-    const location1 = {lat: 51, lon: 4};
-    const location2 = {lat: 51.001, lon: 4.001 };
-    console.log(geolocation.headingDistanceTo(location1, location2)) ;
+
+    // done(null,{"example":"asdf"});
     
 
 };
-
-function calculateScoreForZone(locations, zone) {
-    var boundingBox = geolocation.getBoundingBox(locations, zone.radius);
+function processRaveltieData() {
+    imeisMap.forEach(function(mainImei, mainImeiKey) {
+        // console.log("precheck-mainImei");
+        var boundingBox = geolocation.getBoundingBox(mainImei.locations, zones[0].radius);//at least zone A
+        var PrecheckBreakException = {};
+        try {
             imeisMap.forEach(function(secondaryImei,secondaryImeiKey){
-                secondaryImei.locations.forEach(function(locations,index,array) {
-                    var inside = geolocation.insideBoundingBox(locations,boundingBox);
+                if(mainImei.imei === secondaryImei.imei) return;
+                // console.log("precheck-secondaryImei");
+                secondaryImei.locations.forEach(function(secondaryLocation,index,array) {
+                    // console.log("precheck-secondaryLocation");
+                    var inside = geolocation.insideBoundingBox(secondaryLocation,boundingBox);
                     if(inside) {
                         mainImei.overlapping.push({'imei':secondaryImei.imei});
-                        continue;//skip to next secondaryImei
+                        console.log("PrecheckBreakException");
+                        throw PrecheckBreakException;//skip to next secondaryImei, not yet time to do final processing
                     }
                 });
                 
 
             });
-            //once all secondary Imeis are processed we can calculate new score for mainImei
-            mainImei.overlapping.forEach(function(overlapping, index, array) {
-                var overlappingImei = imeisMap.get(overlapping.imei);
+        }catch(e){}
 
-                overlappingImei.locations.forEach(function(secondaryLocation, secIndex, secArray)) {
-                    //@TODO find closest matching timestamp for main and secondary locations
-                    //@TODO add attribute of location accuracy and sutract it from distance calculation
+        //once all secondary Imeis are processed we can calculate new score for mainImei
+        mainImei.overlapping.forEach(function(overlapping, index, array) { 
+            console.log("mainImei.overlapping");
+            var overlappingImei = imeisMap.get(overlapping.imei);
+            console.log("locations array length"+mainImei.locations.length);
+            mainImei.locations.sort(function(a,b){return a.timestamp - b.timestamp;});
+            mainImei.locations.forEach(function(location,index,array) {
+                console.log("mainImei.locations");
+                var LocationBreakException = {};
+                var previousTimestamp = 0;
+                try {
+                    overlappingImei.locations.sort(function(a,b){return a.timestamp - b.timestamp;});
+                    overlappingImei.locations.forEach(function(secondaryLocation, secIndex, secArray) {
+                        // console.log("overlappingImei.locations");
+
+                        //match timestamp
+                        if(previousTimestamp < secondaryLocation.timestamp) {
+                            // console.log("right");
+                            previousTimestamp = secondaryLocation.timestamp;
+                        } else {
+                            console.log("wrongss");
+                            throw LocationBreakException;
+                        }
+                        //@TODO find closest matching timestamp for main and secondary locations
+                        //@TODO add attribute of location accuracy and sutract it from distance calculation
+                        //geolocation
+                        // console.log(geolocation.headingDistanceTo(location, secondaryLocation));
+                        // throw LocationBreakException;
+                        
+                        // var ZoneBreakException = {};
+                        // try {
+                        //     //@TODO for now use zones but it's very expensive, so do a pre-Zone check
+                        //     zones.forEach(function(zoneValue,zI,zA) {
+
+
+
+                        //         throw ZoneBreakException;
+                        //     });
+                        // }catch(e) {
+
+                        // }
+                    });
+                }catch(e) {
 
                 }
             });
-            //discard mainImei and delete from database but increase secondaryImei score too
-            //@TODO 
-};          
 
 
-function pullRaveltieData() {
+        });
+        //once finish processing delete overlapping imei's for current zone
+        mainImei.overlapping = [];
+            
+        //discard mainImei and delete from database but increase secondaryImei score too
+        imeisMap.delete(mainImeiKey);
+
+    });
+}
+
+// function calculateScoreForZone(mainImei,locations, zone) { 
+
+// };          
+
+
+function pullRaveltieData(callback) {
     const now = new Date();
     var last24Hours = date.addDays(now,-1);
 
     //get all locations/scores of all imeis for last 24 hours
     var scan = {
       TableName : 'raveltie',
-      FilterExpression: '#ts > :greatherthan',
-      ExpressionAttributeValues: {
-        ':greatherthan': last24Hours.getTime().toString()
-      },
-      ExpressionAttributeNames : {'#ts':'timestamp'}
+      Limit : 30
+      //FilterExpression: '',//'#ts > :greatherthan',
+      //ExpressionAttributeValues: {
+        //':greatherthan': last24Hours.getTime().toString()
+      //},
+      //ExpressionAttributeNames : {}//'#ts':'timestamp'}
     };
+    var LastEvaluatedKey = {};
+    var maxPages = 1;
 
-    dynamo.scan(scan, function(err, data) {
-       if (err) {
-        console.log(err);
-       } else {
-        //console.log(data);
-        var imeisArray = data.Items;
-
-        imeisArray.forEach(
-            function(value, index, array) {
-                var imeiMapItem = null;
-                if(imeisMap.has(value.imei)) {
-                    imeiMapItem = imeisMap.get(value.imei);
-                } else {
-                    imeisMap.set(
-                        value.imei,{'imei':value.imei,'score':0,'locations':[],'overlapping':[]});
-                    imeiMapItem = imeisMap.get(value.imei);
-                }
-
-                if(value.timestamp === 'score') {
-                    imeiMapItem.score = value.score;
-                } else {
-                    imeiMapItem.locations.push(
-                        {'lat':value.lat, 'lon':value.lon, 'timestamp':value.timestamp});
-                    // console.log( JSON.stringify(imeiMapItem.locations));
-                }
-            });
+    while(typeof LastEvaluatedKey != "undefined") {
         
-       }
-    });
+        dynamo.scan(scan, function(err, data) {
+            console.log("dynamo.scan");
+           if (err) {
+            console.log(err);
+           } else {
+            LastEvaluatedKey = data.LastEvaluatedKey;
+            console.log("last evaluated: "+JSON.stringify(LastEvaluatedKey));
+            // LastEvaluatedKey = data.LastEvaluatedKey;
+
+            // console.log(JSON.stringify(data));
+            var imeisArray = data.Items;
+
+            // imeisArray.forEach(function(value, index, array) {
+            //     // console.log("imeisArray.forEach");
+            //     var imeiMapItem = null;
+            //     if(imeisMap.has(value.imei)) {
+            //         imeiMapItem = imeisMap.get(value.imei);
+            //     } else {
+            //         imeisMap.set(
+            //             value.imei,{'imei':value.imei,'score':0,'locations':[],'overlapping':[]});
+            //         imeiMapItem = imeisMap.get(value.imei);
+            //     }
+
+            //     if(value.timestamp === 'score') {
+            //         imeiMapItem.score = value.score;
+            //     } else {
+            //         imeiMapItem.locations.push(
+            //             {'lat':Number(value.lat), 'lon':Number(value.lon),
+            //             'accuracy':Number(value.accuracy),
+            //             'timestamp':Number(value.timestamp)});
+            //         // console.log( JSON.stringify(imeiMapItem.locations));
+            //     }
+            // });
+            // callback();
+           }
+        });
+    }
+
 };
 
 
