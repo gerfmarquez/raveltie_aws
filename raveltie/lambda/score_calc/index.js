@@ -27,11 +27,11 @@ const dynamo = new doc.DynamoDB();
 
 var imeisMap = new Map();
 var zones = [
-    {'zone':'A','radius':14484},
-    {'zone':'B','radius':9656},
-    {'zone':'C','radius':4828},
-    {'zone':'D','radius':2414},
-    {'zone':'E','radius':1255}
+    {'zone':'A','radius':14484,'points':1},
+    {'zone':'B','radius':9656,'points':2},
+    {'zone':'C','radius':4828,'points':3},
+    {'zone':'D','radius':2414,'points':4},
+    {'zone':'E','radius':1255,'points':5}
 ];
 
 exports.handler = (event, context, callback) => {
@@ -52,6 +52,8 @@ exports.handler = (event, context, callback) => {
         console.log("pullRaveltieData callback");
 
         processRaveltieData();
+        //@TODO once above function returns ImeiMaps should have latest score
+        //@TODO push update to database
     });
     // var locations = [{lat: "51", lon: "4", etc:"asdf"},{lat: "51.001", lon: "4.001" , etc:"asdf"}]
     // console.log(geolocation.getBoundingBox(locations));
@@ -180,35 +182,49 @@ function processRaveltieData() {
                         }
                         var ZoneBreakException = {};
                         try {
-                            //@TODO for now use zones but it's very expensive, so do a pre-Zone check
+                            // for now use zones but it's very expensive, so do a pre-Zone check
                             zones.forEach(function(zoneValue,zI,zA) {
                                 //add attribute of location accuracy and sutract it from distance calculation
                                 //geolocation
                                 var distanceTo = geolocation
                                     .headingDistanceTo(mainLocation, matchingSecondaryLocation);
 
-                                distanceTo = distanceTo - 
-
-                                throw ZoneBreakException;
-                            });
-                        }catch(e) {
-
-                        }
-                    });
-                } catch(e) {
-
-                }
-            });
+                                if((distanceTo - 
+                                    mainLocation.accuracy - 
+                                        matchingSecondaryLocation.accuracy) < zoneValue.radius) {
+                                    //score points
+                                    mainLocation.points += zoneValue.points;
+                                    matchingSecondaryLocation.points += zoneValue.points;
 
 
-        });
+
+                                } else {
+                                    //no points
+                                    throw ZoneBreakException;
+                                    //when there aren't any matching big zones,
+                                    //least will there be matching smaller zones
+                                }
+                            });//end zones
+
+                        }catch(zonesBreakException) {}
+                    });//end overlapping Imei Locations
+
+                }catch(skipMainBreakException) {}
+            });//end main Imei Locations
+
+        });//end main Imei Overlapping
+
         //once finish processing delete overlapping imei's for current zone
         mainImei.overlapping = [];
             
-        //discard mainImei and delete from database but increase secondaryImei score too
+        mainImei.locations = null;
+
+        console.log(JSON.stringify(mainImei));
+        //discard mainImei and update to database but increase secondaryImei score too
         imeisMap.delete(mainImeiKey);
 
-    });
+    });//end imeisMap
+
 };
 
 function pullRaveltieData(callback) {
