@@ -66,6 +66,9 @@ exports.handler = (event, context, callback) => {
 };
 function processRaveltieData() {
     imeisMap.forEach(function(mainImei, mainImeiKey) {
+        
+        if(mainImei.imei === "9dd419498375d3b8ea10429670e432e80ecfa77697f6ecc943ad66de40425928")return;
+        console.log(mainImei.imei);
         // console.log("precheck-mainImei");
         var boundingBox = geolocation.getBoundingBox(mainImei.locations, zones[0].radius);//at least zone A
         var PrecheckBreakException = {};
@@ -78,7 +81,7 @@ function processRaveltieData() {
                     var inside = geolocation.insideBoundingBox(secondaryLocation,boundingBox);
                     if(inside) {
                         mainImei.overlapping.push({'imei':secondaryImei.imei});
-                        console.log("PrecheckBreakException");
+                        // console.log("PrecheckBreakException");
                         throw PrecheckBreakException;//skip to next secondaryImei, not yet time to do final processing
                     }
                 });
@@ -89,8 +92,8 @@ function processRaveltieData() {
 
         //once all secondary Imeis are processed we can calculate new score for mainImei
         mainImei.overlapping.forEach(function(overlapping, index, array) { 
-            console.log("mainImei.overlapping");
-            console.log("locations array length"+mainImei.locations.length);
+            // console.log("mainImei.overlapping");
+            // console.log("locations array length"+mainImei.locations.length);
             var overlappingImei = imeisMap.get(overlapping.imei);
 
             var timestampOffset = 30 * 1000;//30 seconds
@@ -101,7 +104,8 @@ function processRaveltieData() {
 
             mainImei.locations.sort(function(a,b){return a.timestamp - b.timestamp;});
             mainImei.locations.forEach(function(mainLocation,index,array) {
-                console.log("mainImei.locations");
+                // console.log("main locations index: "+index+" length: "+array.length);
+                // console.log("main location: "+JSON.stringify(mainLocation));
 
                 mainTimestamp = mainLocation.timestamp;
                 var SkipMainBreakException = {};
@@ -110,75 +114,115 @@ function processRaveltieData() {
                 try {
                     overlappingImei.locations.sort(function(a,b){return a.timestamp - b.timestamp;});
                     overlappingImei.locations.forEach(function(secondaryLocation, secIndex, secArray) {
-                        console.log("overlappingImei.locations");
 
-                        if(secIndex <= lastSecondaryIndexUsed)return;//@todo efficiency
+                        if(secIndex < lastSecondaryIndexUsed) {
+                            return;//@todo efficiency
+                        }
+                        console.log("secondaryLocation index: "+secIndex+" mainLocationIndex: "+index);
 
                         secondaryTimestamp = secondaryLocation.timestamp;
 
+                        // console.log("secondaryTimestamp: "+secondaryTimestamp+" MainTimestamp: "+mainTimestamp);
                         //find closest matching timestamp for main and secondary locations
                         if(secondaryTimestamp >= mainTimestamp) {
+                            // console.log("Greater");
                             var rewindIndex = secIndex;
                             var rewindTimestamp;
                             do {
                                 rewindTimestamp = secArray[rewindIndex].timestamp;
                                 if(rewindTimestamp < mainTimestamp) {
-                                    var forwardIndex = rewindTimestamp + 1;
+                                    // console.log("Rewind--");
+                                    var forwardIndex = rewindIndex + 1;
                                     var forwardTimestamp = secArray[forwardIndex].timestamp;
 
                                     //figure which is closer
                                     var rewindOffset = mainTimestamp - rewindTimestamp;
                                     var forwardOffset = forwardTimestamp - mainTimestamp;
 
+                                    // console.log("forwardOffset: "+forwardOffset+
+                                    //     " rewindOffset: "+rewindOffset+" timestampOffset: "+timestampOffset);
+
                                     if(forwardOffset < rewindOffset &&
                                      forwardOffset < timestampOffset) {
+                                        console.log("Rewind--Rewind Offset");
                                         //use forward secondary
                                         matchingSecondaryLocation = secArray[forwardIndex];
                                         lastSecondaryIndexUsed = forwardIndex;
+                                        break;
                                     } else if(rewindOffset < forwardOffset &&
                                      rewindOffset < timestampOffset) {
+                                        console.log("Rewind--Forward Offset");
                                         //use rewind secondary
                                         matchingSecondaryLocation = secArray[rewindIndex];
                                         lastSecondaryIndexUsed = rewindIndex;
+                                        break;
                                     } else {
                                         throw SkipMainBreakException;//no close timestamps found
                                     }
+                                } else {
+                                    // console.log("Greater-First");
                                 }
-                                rewindIndex = rewindIndex - 1;
-                                // index > 0 || index > lastSecondaryIndexUsed
+                                if(rewindIndex > 0) {
+                                    rewindIndex = rewindIndex - 1;
+                                } else {
+                                    throw SkipMainBreakException;
+                                }
+
+                                // 
                             } while (rewindTimestamp > (mainTimestamp - timestampOffset));
 
                         } else if(secondaryTimestamp <= mainTimestamp) {
-                           var forwardIndex = secIndex;
+                            // console.log("Lesser");
+                            var forwardIndex = secIndex;
                             var forwardTimestamp;
                             do {
                                 forwardTimestamp = secArray[forwardIndex].timestamp;
                                 if(forwardTimestamp > mainTimestamp) {
-                                    var rewindIndex = forwardTimestamp - 1;
+                                    // console.log("Forward--");
+                                    var rewindIndex = forwardIndex - 1;
+
+                                    // console.log(JSON.stringify(secArray[rewindIndex].timestamp));
                                     var rewindTimestamp = secArray[rewindIndex].timestamp;
 
                                     //figure which is closer
                                     var forwardOffset = forwardTimestamp - mainTimestamp;
                                     var rewindOffset = mainTimestamp - rewindTimestamp;
 
+                                    // console.log("forwardOffset: "+forwardOffset+
+                                    //     " rewindOffset: "+rewindOffset+" timestampOffset: "+timestampOffset);
+
                                     if(forwardOffset < rewindOffset &&
                                      forwardOffset < timestampOffset) {
+                                        console.log("Forward--Forward Offset");
                                         //use forward secondary
                                         matchingSecondaryLocation = secArray[forwardIndex];
                                         lastSecondaryIndexUsed = forwardIndex;
+                                        break;
                                     } else if(rewindOffset < forwardOffset &&
                                      rewindOffset < timestampOffset) {
+                                        console.log("Forward--Rewind Offset");
                                         //use rewind secondary
                                         matchingSecondaryLocation = secArray[rewindIndex];
                                         lastSecondaryIndexUsed = rewindIndex;
+                                        break;
                                     } else {
                                         throw SkipMainBreakException;//no close timestamps found
                                     }
+                                } else {
+                                    // console.log("Lesser-First");
                                 }
-                                forwardIndex = forwardIndex + 1;
+                                
+                                if(forwardIndex < secArray.length) {
+                                    forwardIndex = forwardIndex + 1;
+                                } else {
+                                    throw SkipMainBreakException;
+                                }
+
                                 // index > 0 || index > lastSecondaryIndexUsed
                             } while (forwardTimestamp < (mainTimestamp + timestampOffset));
 
+                        } else {
+                            console.log("Edge Case Exception");
                         }
                         var ZoneBreakException = {};
                         try {
@@ -187,16 +231,23 @@ function processRaveltieData() {
                                 //add attribute of location accuracy and sutract it from distance calculation
                                 //geolocation
                                 var distanceTo = geolocation
-                                    .headingDistanceTo(mainLocation, matchingSecondaryLocation);
+                                    .headingDistanceTo(mainLocation, matchingSecondaryLocation)
+                                    .distance;
+
+                                // console.log("distance: "+distanceTo+
+                                //     " accuracy1: "+mainLocation.accuracy+
+                                //     " accuracy2: "+matchingSecondaryLocation.accuracy+
+                                //     " radius: "+zoneValue.radius);
 
                                 if((distanceTo - 
                                     mainLocation.accuracy - 
                                         matchingSecondaryLocation.accuracy) < zoneValue.radius) {
                                     //score points
-                                    mainLocation.points += zoneValue.points;
-                                    matchingSecondaryLocation.points += zoneValue.points;
+                                    mainImei.score += zoneValue.points;
+                                    overlappingImei.score += zoneValue.points;
 
-
+                                    console.log("Score1: "+mainImei.score+"Score2: "+overlappingImei.score);
+                                    // throw SkipMainBreakException;
 
                                 } else {
                                     //no points
@@ -204,12 +255,27 @@ function processRaveltieData() {
                                     //when there aren't any matching big zones,
                                     //least will there be matching smaller zones
                                 }
+                                throw ZoneBreakException;
                             });//end zones
 
-                        }catch(zonesBreakException) {}
+                        }catch(zonesBreakException) {
+                            if(zonesBreakException instanceof Error) {
+                                throw zonesBreakException;
+                            } else {
+                                // console.log("zonesBreakException");
+                                throw SkipMainBreakException;
+                            }
+                        }
                     });//end overlapping Imei Locations
 
-                }catch(skipMainBreakException) {}
+                }catch(skipMainBreakException) {
+                    if(skipMainBreakException instanceof Error) {
+                        throw skipMainBreakException;
+                    } else {
+                        // console.log("skipMainBreakException");
+                    }
+                    
+                }
             });//end main Imei Locations
 
         });//end main Imei Overlapping
@@ -249,7 +315,7 @@ function pullRaveltieData(callback) {
 function scanning(scan,callback) {
 
     dynamo.scan(scan, function(err, data) {
-        console.log("dynamo.scan");
+        // console.log("dynamo.scan");
         if (err) {
             console.log(err);
         } else {
@@ -268,7 +334,7 @@ function scanning(scan,callback) {
                 }
 
                 if(value.timestamp === 'score') {
-                    imeiMapItem.score = value.score;
+                    imeiMapItem.score = Number(value.score);
                 } else {
                     imeiMapItem.locations.push(
                         {'lat':Number(value.lat), 'lon':Number(value.lon),
