@@ -24,6 +24,8 @@ const geolocation = require('geolocation-utils')
 
 const dynamo = new doc.DynamoDB();
 
+const now = new Date();
+var last24Hours = date.addDays(now,-1);
 
 var imeisMap = new Map();
 var zones = [
@@ -308,6 +310,27 @@ function processRaveltieData() {
 
             }
         });
+
+        var deleteLocations = {
+            TableName : 'raveltie',
+            Key : {
+                imei : mainImei.imei
+                // timestamp : 
+            },
+            ConditionExpression : '#ts >  :greatherthan and #ts <> :score',
+            ExpressionAttributeValues : {
+                ':greatherthan': last24Hours.getTime().toString(),
+                ':score': 'score'
+            },
+            ExpressionAttributeNames : {'#ts':'timestamp'}
+        };
+        dynamo.deleteItem(deleteLocations, function(err,data) {
+            if(err) {
+                console.log(err);
+            } else {
+                console.log("deleted all locations for imei"+JSON.stringify(data));
+            }
+        });
         //discard mainImei and update to database but increase secondaryImei score too
         imeisMap.delete(mainImeiKey);
 
@@ -316,19 +339,15 @@ function processRaveltieData() {
 };
 
 function pullRaveltieData(callback) {
-
-    const now = new Date();
-    var last24Hours = date.addDays(now,-1);
-
     //get all locations/scores of all imeis for last 24 hours
     var scan = {
       TableName : 'raveltie',
-      Limit : 30,
-      //FilterExpression: '',//'#ts > :greatherthan',
-      //ExpressionAttributeValues: {
-        //':greatherthan': last24Hours.getTime().toString()
-      //},
-      //ExpressionAttributeNames : {}//'#ts':'timestamp'}
+      Limit : 100,
+      FilterExpression: '#ts > :greatherthan',
+      ExpressionAttributeValues: {
+        ':greatherthan': last24Hours.getTime().toString()
+      },
+      ExpressionAttributeNames : {'#ts':'timestamp'}
     };
     
     scanning(scan, callback);
