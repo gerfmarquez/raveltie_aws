@@ -32,20 +32,14 @@ exports.handler = (event, context, callback) => {
 	    'TableName':'raveltie',
 	    'Item': {
 	        'imei': event.queryStringParameters.imei,
-	        'timestamp': event.queryStringParameters.timestamp,
+	        // 'timestamp': event.queryStringParameters.timestamp,
+	        'timestamp': new Date().getTime().toString(),
 	        'lat': event.queryStringParameters.lat,
 	        'lon': event.queryStringParameters.lon,
 	        'accuracy': event.queryStringParameters.accuracy
 	    }
 	}, done);
-	dynamo.putItem(	
-	{
-	    'TableName':'raveltie',
-	    'Item': {
-	        'imei': event.queryStringParameters.imei,
-	        'timestamp': "score"
-	    }
-	}, done);
+
 };
 
 

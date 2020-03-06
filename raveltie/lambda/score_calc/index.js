@@ -67,7 +67,7 @@ exports.handler = (event, context, callback) => {
 function processRaveltieData() {
     imeisMap.forEach(function(mainImei, mainImeiKey) {
         
-        if(mainImei.imei === "9dd419498375d3b8ea10429670e432e80ecfa77697f6ecc943ad66de40425928")return;
+        // if(mainImei.imei === "9dd419498375d3b8ea10429670e432e80ecfa77697f6ecc943ad66de40425928")return;
         console.log(mainImei.imei);
         // console.log("precheck-mainImei");
         var boundingBox = geolocation.getBoundingBox(mainImei.locations, zones[0].radius);//at least zone A
@@ -91,7 +91,7 @@ function processRaveltieData() {
         }catch(e){}
 
         //once all secondary Imeis are processed we can calculate new score for mainImei
-        mainImei.overlapping.forEach(function(overlapping, index, array) { 
+        mainImei.overlapping.forEach(function(overlapping, index, array) {
             // console.log("mainImei.overlapping");
             // console.log("locations array length"+mainImei.locations.length);
             var overlappingImei = imeisMap.get(overlapping.imei);
@@ -115,10 +115,10 @@ function processRaveltieData() {
                     overlappingImei.locations.sort(function(a,b){return a.timestamp - b.timestamp;});
                     overlappingImei.locations.forEach(function(secondaryLocation, secIndex, secArray) {
 
-                        if(secIndex < lastSecondaryIndexUsed) {
+                        if(secIndex <= lastSecondaryIndexUsed) {
                             return;//@todo efficiency
                         }
-                        console.log("secondaryLocation index: "+secIndex+" mainLocationIndex: "+index);
+                        // console.log("secondaryLocation index: "+secIndex+" mainLocationIndex: "+index);
 
                         secondaryTimestamp = secondaryLocation.timestamp;
 
@@ -144,14 +144,14 @@ function processRaveltieData() {
 
                                     if(forwardOffset < rewindOffset &&
                                      forwardOffset < timestampOffset) {
-                                        console.log("Rewind--Rewind Offset");
+                                        // console.log("Rewind--Rewind Offset");
                                         //use forward secondary
                                         matchingSecondaryLocation = secArray[forwardIndex];
                                         lastSecondaryIndexUsed = forwardIndex;
                                         break;
                                     } else if(rewindOffset < forwardOffset &&
                                      rewindOffset < timestampOffset) {
-                                        console.log("Rewind--Forward Offset");
+                                        // console.log("Rewind--Forward Offset");
                                         //use rewind secondary
                                         matchingSecondaryLocation = secArray[rewindIndex];
                                         lastSecondaryIndexUsed = rewindIndex;
@@ -169,7 +169,7 @@ function processRaveltieData() {
                                 }
 
                                 // 
-                            } while (rewindTimestamp > (mainTimestamp - timestampOffset));
+                            } while (rewindTimestamp > (mainTimestamp - timestampOffset)) ;
 
                         } else if(secondaryTimestamp <= mainTimestamp) {
                             // console.log("Lesser");
@@ -193,14 +193,14 @@ function processRaveltieData() {
 
                                     if(forwardOffset < rewindOffset &&
                                      forwardOffset < timestampOffset) {
-                                        console.log("Forward--Forward Offset");
-                                        //use forward secondary
+                                        // console.log("Forward--Forward Offset");
+                                        //use forward secondary5
                                         matchingSecondaryLocation = secArray[forwardIndex];
                                         lastSecondaryIndexUsed = forwardIndex;
                                         break;
                                     } else if(rewindOffset < forwardOffset &&
                                      rewindOffset < timestampOffset) {
-                                        console.log("Forward--Rewind Offset");
+                                        // console.log("Forward--Rewind Offset");
                                         //use rewind secondary
                                         matchingSecondaryLocation = secArray[rewindIndex];
                                         lastSecondaryIndexUsed = rewindIndex;
@@ -212,7 +212,7 @@ function processRaveltieData() {
                                     // console.log("Lesser-First");
                                 }
                                 
-                                if(forwardIndex < secArray.length) {
+                                if(forwardIndex < secArray.length-1) {
                                     forwardIndex = forwardIndex + 1;
                                 } else {
                                     throw SkipMainBreakException;
@@ -246,7 +246,7 @@ function processRaveltieData() {
                                     mainImei.score += zoneValue.points;
                                     overlappingImei.score += zoneValue.points;
 
-                                    console.log("Score1: "+mainImei.score+"Score2: "+overlappingImei.score);
+                                    // console.log("Score1: "+mainImei.score+"Score2: "+overlappingImei.score);
                                     // throw SkipMainBreakException;
 
                                 } else {
@@ -280,12 +280,34 @@ function processRaveltieData() {
 
         });//end main Imei Overlapping
 
+        
+
         //once finish processing delete overlapping imei's for current zone
         mainImei.overlapping = [];
-            
-        mainImei.locations = null;
+        mainImei.locations = null;//free up some memory?
 
         console.log(JSON.stringify(mainImei));
+        //Update score and delete processed locations?
+        var updateScore = {
+            TableName : 'raveltie',
+            Item : {
+                imei : mainImei.imei,
+                timestamp : 'score',
+                score : mainImei.score
+            },
+            // UpdateExpression: '',
+            ReturnValues:"ALL_OLD"
+        };
+
+        dynamo.putItem(updateScore, function(err, data) {
+            if(err) {
+                console.log(err);
+            }else {
+                // console.log(data);
+                //maybe make sure that old score being replaced isn't higher
+
+            }
+        });
         //discard mainImei and update to database but increase secondaryImei score too
         imeisMap.delete(mainImeiKey);
 
