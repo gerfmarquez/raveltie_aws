@@ -28,11 +28,11 @@ const promisify = require('util').promisify;
 const agent = stackimpact.start({
     agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
     appName: "MyNodejsApp",
-    cpuProfilerDisabled: false,
-    allocationProfilerDisabled: false,
-    asyncProfilerDisabled: false ,
-    errorProfilerDisabled: false,
-    autoProfiling: false,
+    // cpuProfilerDisabled: false,
+    // allocationProfilerDisabled: false,
+    // asyncProfilerDisabled: false ,
+    // errorProfilerDisabled: false,
+    autoProfiling: true,
     debug: true
 });
 
@@ -52,16 +52,18 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-exports.handler =  async (event) => {
+exports.handler =   async (event) => {
     // agent.startCpuProfiler();
-
-    await sleep(5000);
+    var span = await agent.profile();
+    // await span.stop(()=>{});
+    // span = await agent.profile();
+    await sleep(7000);
     
     console.log("await agent activate finished");
-    const span = await agent.profile();
     // await agent.startCpuProfiler();
-    await agent.startAllocationProfiler();
-    await agent.startAsyncProfiler();
+    // await agent.startAllocationProfiler();
+    // await agent.startAsyncProfiler();
+    
 
     //console.log('Received event:', JSON.stringify(event, null, 2));
 
@@ -74,22 +76,28 @@ exports.handler =  async (event) => {
     // });
     console.log("pullRaveltieData");
 
+    
+
     const raveltieData = await promisify(pullRaveltieData)();
     const processData = await promisify(processRaveltieData)();
+
+    
 
     console.log("processRaveltieData");
 
     // await agent.stopCpuProfiler(()=>{});
-    await agent.stopAllocationProfiler(()=>{});
-    await agent.stopAsyncProfiler(()=>{});
-    await span.stop(()=>{});
+    // await agent.stopAllocationProfiler(()=>{});
+    // await agent.stopAsyncProfiler(()=>{});
+    
+    await span.stop();
 
-    // await sleep(7000);
-    await agent.destroy();
+    await sleep(7000);
+    // await agent.destroy();
 
     // agent.stopCpuProfiler(()=>{
 
     // });
+    return{"response":"200"};
 
 };
 function processRaveltieData(done) {
