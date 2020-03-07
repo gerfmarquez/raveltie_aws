@@ -25,7 +25,7 @@ const stackimpact = require('stackimpact');
 const dynamo = new doc.DynamoDB();
 const promisify = require('util').promisify;
 
-var agent = stackimpact.start({
+const agent = stackimpact.start({
     agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
     appName: "MyNodejsApp",
     cpuProfilerDisabled: false,
@@ -54,11 +54,14 @@ function sleep(ms) {
 
 exports.handler =  async (event) => {
     // agent.startCpuProfiler();
+
     await sleep(5000);
     
     console.log("await agent activate finished");
     const span = await agent.profile();
+    // await agent.startCpuProfiler();
     await agent.startAllocationProfiler();
+    await agent.startAsyncProfiler();
 
     //console.log('Received event:', JSON.stringify(event, null, 2));
 
@@ -76,10 +79,12 @@ exports.handler =  async (event) => {
 
     console.log("processRaveltieData");
 
-    const stop = await agent.stopAllocationProfiler(()=>{});
-    const stopPro = await span.stop(() => {});
+    // await agent.stopCpuProfiler(()=>{});
+    await agent.stopAllocationProfiler(()=>{});
+    await agent.stopAsyncProfiler(()=>{});
+    await span.stop(()=>{});
 
-    await sleep(7000);
+    // await sleep(7000);
     await agent.destroy();
 
     // agent.stopCpuProfiler(()=>{
@@ -313,7 +318,7 @@ function processRaveltieData(done) {
         
         //Update score and delete processed locations?
         var updateScore = {
-            TableName : 'raveltie2',
+            TableName : 'raveltie',
             Item : {
                 imei : mainImei.imei,
                 timestamp : 'score',
@@ -338,7 +343,7 @@ function processRaveltieData(done) {
         mainImei.locations.forEach(function(location,index,array) {
             var deleteRequest =  
             {
-                TableName : 'raveltie2',
+                TableName : 'raveltie',
                 Key : {
                     imei : mainImei.imei,
                     timestamp : location.timestamp.toString()
@@ -372,7 +377,7 @@ function processRaveltieData(done) {
 function pullRaveltieData(done) {
     //get all locations/scores of all imeis for last 24 hours
     var scan = {
-      TableName : 'raveltie2',
+      TableName : 'raveltie',
       Limit : 100//,
       // FilterExpression: '#ts > :greatherthan',
       // ExpressionAttributeValues: {
