@@ -23,15 +23,18 @@ const date = require('date-and-time')
 const geolocation = require('geolocation-utils')
 const stackimpact = require('stackimpact');
 const dynamo = new doc.DynamoDB();
+const promisify = require('util').promisify;
 
-const agent = stackimpact.start({
-  agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
-  appName: "MyNodejsApp",
-  cpuProfilerDisabled: false,
-  autoProfiling: true,
-  debug: true
+var agent = stackimpact.start({
+    agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
+    appName: "MyNodejsApp",
+    cpuProfilerDisabled: false,
+    allocationProfilerDisabled: false,
+    asyncProfilerDisabled: false ,
+    errorProfilerDisabled: false,
+    autoProfiling: false,
+    debug: true
 });
-
 
 const now = new Date();
 var last24Hours = date.addDays(now,-1);
@@ -45,41 +48,47 @@ var zones = [
     {'zone':'E','radius':1255,'points':5}
 ];
 
-exports.handler = async (event, context, callback) => {
-    var span = agent.profile();
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+exports.handler =  async (event) => {
+    // agent.startCpuProfiler();
+    await sleep(5000);
+    
+    console.log("await agent activate finished");
+    const span = await agent.profile();
+    await agent.startAllocationProfiler();
+
     //console.log('Received event:', JSON.stringify(event, null, 2));
 
-    const done = (err, res) => callback(null, {
-        statusCode: err ? '400' : '200',
-        body: err ? err.message : JSON.stringify(res),
-        headers: {
-            'Content-Type': 'application/json',
-        },
-    });
+    // const done = (err, res) => callback(null, {
+    //     statusCode: err ? '400' : '200',
+    //     body: err ? err.message : JSON.stringify(res),
+    //     headers: {
+    //         'Content-Type': 'application/json',
+    //     },
+    // });
     console.log("pullRaveltieData");
 
+    const raveltieData = await promisify(pullRaveltieData)();
+    const processData = await promisify(processRaveltieData)();
 
+    console.log("processRaveltieData");
 
-    pullRaveltieData(function callback() {
-        console.log("pullRaveltieData callback");
+    const stop = await agent.stopAllocationProfiler(()=>{});
+    const stopPro = await span.stop(() => {});
 
-        processRaveltieData(function callback2() {
-            span.stop(function() {
-                done(null,{"example":"asdf"});
-            });
-            // span.stop(() => {
-                
-            // });
-            // agent.destroy();
-        });
-        //@TODO once above function returns ImeiMaps should have latest score
-        //@TODO push update to database
-    });
-    // var locations = [{lat: "51", lon: "4", etc:"asdf"},{lat: "51.001", lon: "4.001" , etc:"asdf"}]
-    // console.log(geolocation.getBoundingBox(locations));
+    await sleep(7000);
+    await agent.destroy();
+
+    // agent.stopCpuProfiler(()=>{
+
+    // });
 
 };
-function processRaveltieData(callback) {
+function processRaveltieData(done) {
+    console.log("processRaveltieData");
     imeisMap.forEach(function(mainImei, mainImeiKey) {
         
         // if(mainImei.imei === "9dd419498375d3b8ea10429670e432e80ecfa77697f6ecc943ad66de40425928")return;
@@ -103,7 +112,13 @@ function processRaveltieData(callback) {
                 
 
             });
-        }catch(e){}
+        }catch(precheckBreakException){
+            if(precheckBreakException instanceof Error) {
+                throw precheckBreakException;
+            } else {
+                // console.log("precheckBreakException");
+            }
+        }
 
         //once all secondary Imeis are processed we can calculate new score for mainImei
         mainImei.overlapping.forEach(function(overlapping, index, array) {
@@ -350,11 +365,11 @@ function processRaveltieData(callback) {
 
     });//end imeisMap
 
-    callback();
+    done();
 
 };
 
-function pullRaveltieData(callback) {
+function pullRaveltieData(done) {
     //get all locations/scores of all imeis for last 24 hours
     var scan = {
       TableName : 'raveltie2',
@@ -366,10 +381,10 @@ function pullRaveltieData(callback) {
       // ExpressionAttributeNames : {'#ts':'timestamp'}
     };
     
-    scanning(scan, callback);
+    scanning(scan, done);
 
 };
-function scanning(scan,callback) {
+function scanning(scan,done) {
 
     dynamo.scan(scan, function(err, data) {
         // console.log("dynamo.scan");
@@ -402,9 +417,9 @@ function scanning(scan,callback) {
             });
             if(typeof data.LastEvaluatedKey != "undefined") {
                 scan.ExclusiveStartKey = data.LastEvaluatedKey;
-                scanning(scan,callback);
+                scanning(scan,done);
             } else {
-                callback();
+                done();
             }
         }
     });
