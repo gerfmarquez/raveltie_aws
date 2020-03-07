@@ -21,8 +21,17 @@ console.log('Loading function');
 const doc = require('dynamodb-doc');
 const date = require('date-and-time')
 const geolocation = require('geolocation-utils')
-
+const stackimpact = require('stackimpact');
 const dynamo = new doc.DynamoDB();
+
+const agent = stackimpact.start({
+  agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
+  appName: "MyNodejsApp",
+  cpuProfilerDisabled: false,
+  autoProfiling: true,
+  debug: true
+});
+
 
 const now = new Date();
 var last24Hours = date.addDays(now,-1);
@@ -36,7 +45,8 @@ var zones = [
     {'zone':'E','radius':1255,'points':5}
 ];
 
-exports.handler = (event, context, callback) => {
+exports.handler = async (event, context, callback) => {
+    var span = agent.profile();
     //console.log('Received event:', JSON.stringify(event, null, 2));
 
     const done = (err, res) => callback(null, {
@@ -53,20 +63,23 @@ exports.handler = (event, context, callback) => {
     pullRaveltieData(function callback() {
         console.log("pullRaveltieData callback");
 
-        processRaveltieData();
+        processRaveltieData(function callback2() {
+            span.stop(function() {
+                done(null,{"example":"asdf"});
+            });
+            // span.stop(() => {
+                
+            // });
+            // agent.destroy();
+        });
         //@TODO once above function returns ImeiMaps should have latest score
         //@TODO push update to database
     });
     // var locations = [{lat: "51", lon: "4", etc:"asdf"},{lat: "51.001", lon: "4.001" , etc:"asdf"}]
     // console.log(geolocation.getBoundingBox(locations));
 
-    
-
-    // done(null,{"example":"asdf"});
-    
-
 };
-function processRaveltieData() {
+function processRaveltieData(callback) {
     imeisMap.forEach(function(mainImei, mainImeiKey) {
         
         // if(mainImei.imei === "9dd419498375d3b8ea10429670e432e80ecfa77697f6ecc943ad66de40425928")return;
@@ -283,15 +296,9 @@ function processRaveltieData() {
         });//end main Imei Overlapping
 
         
-
-        //once finish processing delete overlapping imei's for current zone
-        mainImei.overlapping = [];
-        mainImei.locations = null;//free up some memory?
-
-        console.log(JSON.stringify(mainImei));
         //Update score and delete processed locations?
         var updateScore = {
-            TableName : 'raveltie',
+            TableName : 'raveltie2',
             Item : {
                 imei : mainImei.imei,
                 timestamp : 'score',
@@ -308,46 +315,55 @@ function processRaveltieData() {
                 // console.log(data);
                 //maybe make sure that old score being replaced isn't higher
 
+
             }
         });
 
-        var deleteLocations = {
-            TableName : 'raveltie',
-            Key : {
-                imei : mainImei.imei
-                // timestamp : 
-            },
-            ConditionExpression : '#ts >  :greatherthan and #ts <> :score',
-            ExpressionAttributeValues : {
-                ':greatherthan': last24Hours.getTime().toString(),
-                ':score': 'score'
-            },
-            ExpressionAttributeNames : {'#ts':'timestamp'}
-        };
-        dynamo.deleteItem(deleteLocations, function(err,data) {
+
+        mainImei.locations.forEach(function(location,index,array) {
+            var deleteRequest =  
+            {
+                TableName : 'raveltie2',
+                Key : {
+                    imei : mainImei.imei,
+                    timestamp : location.timestamp.toString()
+                }
+            };
+            dynamo.deleteItem(deleteRequest, function(err,data) {
             if(err) {
                 console.log(err);
             } else {
-                console.log("deleted all locations for imei"+JSON.stringify(data));
+                // console.log("deleted location for imei"+JSON.stringify(data));
             }
+            });
         });
+
+
         //discard mainImei and update to database but increase secondaryImei score too
         imeisMap.delete(mainImeiKey);
 
+        //once finish processing delete overlapping imei's for current zone
+        mainImei.overlapping = [];
+        mainImei.locations = null;//free up some memory?
+
+        console.log(JSON.stringify(mainImei));
+
     });//end imeisMap
+
+    callback();
 
 };
 
 function pullRaveltieData(callback) {
     //get all locations/scores of all imeis for last 24 hours
     var scan = {
-      TableName : 'raveltie',
-      Limit : 100,
-      FilterExpression: '#ts > :greatherthan',
-      ExpressionAttributeValues: {
-        ':greatherthan': last24Hours.getTime().toString()
-      },
-      ExpressionAttributeNames : {'#ts':'timestamp'}
+      TableName : 'raveltie2',
+      Limit : 100//,
+      // FilterExpression: '#ts > :greatherthan',
+      // ExpressionAttributeValues: {
+      //   ':greatherthan': last24Hours.getTime().toString()
+      // },
+      // ExpressionAttributeNames : {'#ts':'timestamp'}
     };
     
     scanning(scan, callback);
