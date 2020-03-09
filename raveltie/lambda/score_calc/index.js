@@ -32,7 +32,7 @@ const agent = stackimpact.start({
     // allocationProfilerDisabled: false,
     // asyncProfilerDisabled: false ,
     // errorProfilerDisabled: false,
-    autoProfiling: true,
+    autoProfiling: false,
     debug: true
 });
 
@@ -51,15 +51,28 @@ var zones = [
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+function simulateCpuWork() {
+  for(let i = 0; i < 1000000; i++) {
+    Math.random();
+  }
+}
 
-exports.handler =   async (event) => {
-    // agent.startCpuProfiler();
-    var span = await agent.profile();
+
+let mem;
+function simulateMemAlloc() {
+  let mem = [];
+  for(let i = 0; i < 10000; i++) {
+    mem.push({v: i});
+  }
+}
+exports.handler =  function (event,context,callback) {
+    
+    // var span = agent.profile();
     // await span.stop(()=>{});
     // span = await agent.profile();
-    await sleep(7000);
+    // await sleep(7000);
     
-    console.log("await agent activate finished");
+    // console.log("await agent activate finished");
     // await agent.startCpuProfiler();
     // await agent.startAllocationProfiler();
     // await agent.startAsyncProfiler();
@@ -74,30 +87,45 @@ exports.handler =   async (event) => {
     //         'Content-Type': 'application/json',
     //     },
     // });
-    console.log("pullRaveltieData");
+    // console.log("pullRaveltieData");
 
     
 
-    const raveltieData = await promisify(pullRaveltieData)();
-    const processData = await promisify(processRaveltieData)();
+    // const raveltieData = await promisify(pullRaveltieData)();
+    // const processData = await promisify(processRaveltieData)();
 
     
 
-    console.log("processRaveltieData");
+    // console.log("processRaveltieData");
 
     // await agent.stopCpuProfiler(()=>{});
     // await agent.stopAllocationProfiler(()=>{});
     // await agent.stopAsyncProfiler(()=>{});
     
-    await span.stop();
+    // span.stop();
 
-    await sleep(7000);
+    // await sleep(7000);
     // await agent.destroy();
 
     // agent.stopCpuProfiler(()=>{
 
     // });
-    return{"response":"200"};
+    // return{"response":"200"};
+
+      const span = agent.profile();
+
+      simulateCpuWork();
+      simulateMemAlloc();
+
+      let response = {
+        statusCode: 200,
+        body: 'Done'
+      };
+      
+      span.stop(() => {
+        callback(null, response);
+      });
+      
 
 };
 function processRaveltieData(done) {
