@@ -418,108 +418,56 @@ let scanning =async (scan, done)=> {
 
   const data = await promisify(dynamo.scan.bind(dynamo))(scan)
   // console.log("data: "+JSON.stringify(data.Items))
-    // console.log("dynamo.scan")
-    // if (err) {
-    //     console.log(err)
-    // } else {
-    //   // console.log("last evaluated: "+JSON.stringify(data.LastEvaluatedKey))
-    //   // console.log(JSON.stringify(data))
-    //   var imeisArray = data.Items
-    //   imeisArray.forEach = async (done)=> {
-    //     for (let index = 0; index < this.length; index++) {
-    //       console.log("override array.prototype");
-    //       // await done(this[index], index, this)
-    //     }
-    //   }
-
-    //   await imeisArray.forEach((value, index, array)=> {
-    //   // // console.log("imeisArray.forEach")
-    //   // var imeiMapItem = null
-    //   // if(imeisMap.has(value.imei)) {
-    //   //     imeiMapItem = imeisMap.get(value.imei)
-    //   // } else {
-    //   //   imeisMap.set(
-    //   //     value.imei,{'imei':value.imei,'score':0,'locations':[],'overlapping':[]})
-    //   //   imeiMapItem = imeisMap.get(value.imei)
-    //   // }
-
-    //   // if(value.timestamp === 'score') {
-    //   //   imeiMapItem.score = Number(value.score)
-    //   // } else {
-    //   //   imeiMapItem.locations.push(
-    //   //       {'lat':Number(value.lat), 'lon':Number(value.lon),
-    //   //       'accuracy':Number(value.accuracy),
-    //   //       'timestamp':Number(value.timestamp)})
-    //   //   // console.log( JSON.stringify(imeiMapItem.locations))
-    //   // }
-    //   })
-    //   // if(typeof data.LastEvaluatedKey != "undefined") {
-    //   //   scan.ExclusiveStartKey = data.LastEvaluatedKey
-    //   //   // scanning(scan,done)
-    //   // } else {
-    //   //   // done()
-    //   // }
-    // }
-  
+  console.log("dynamo.scan")
+  // console.log("last evaluated: "+JSON.stringify(data.LastEvaluatedKey))
+  // console.log(JSON.stringify(data))
   var imeisArray = data.Items
-  // console.log("imeisArray.forEach")
-  
-  imeisArray.forEach = async ()=> {
-  console.log("for each!!!")
-  console.log(this)
-  }
-  // console.log("await imeisArray")
+
   await imeisArray.forEach((value, index, array)=> {
-    console.log("imeisArray")
+    // console.log("imeisArray.forEach")
+    var imeiMapItem = null
+    if(imeisMap.has(value.imei)) {
+        imeiMapItem = imeisMap.get(value.imei)
+    } else {
+      imeisMap.set(
+        value.imei,{'imei':value.imei,'score':0,'locations':[],'overlapping':[]})
+      imeiMapItem = imeisMap.get(value.imei)
+    }
+
+    if(value.timestamp === 'score') {
+      imeiMapItem.score = Number(value.score)
+    } else {
+      imeiMapItem.locations.push(
+          {'lat':Number(value.lat), 'lon':Number(value.lon),
+          'accuracy':Number(value.accuracy),
+          'timestamp':Number(value.timestamp)})
+      // console.log( JSON.stringify(imeiMapItem.locations))
+    }
   })
-
-
-  // console.log("result: "+JSON.stringify(result))
-  //@todo remove
-
-  await done(null,{})
+  if(typeof data.LastEvaluatedKey != "undefined") {
+    scan.ExclusiveStartKey = data.LastEvaluatedKey
+    await scanning(scan,done)
+  } else {
+    await done(null,{})
+  }
 
 }
-// Map.prototype.forEach =async (done)=> {
-//   var keys = Object.keys(this)
-//   var values = Object.values(this)
-//   for (var index = 0; index < keys.length; index++) {
-//     var key = keys[index]
-//     var value = this.get(keys[index])
-//     console.log("override map.prototype");
-//     await done(value, key)
-//   }
-// }
-// Array.prototype.forEach = async ()=> {
-//   console.log("for each!!!")
-//   console.log(this.handler().then(
-//     function(result){
-//       console.log("promise result")
-//       console.log(result)
-//       console.log(this)
-//       console.log(arguments)
-//       return {}
-//     }))
-  
-  
-  // done(1,1,1)
-  // for (let index = 0; index < this.length; index++) {
-  //   console.log("override array.prototype");
-  //   await done(this[index], index, this)
-  // }
-// }
-// Array.prototype.forEach = (function() {
-//     var original = Array.prototype.forEach
-//     //Do what you want here.       
-//     console.log("first")
-//     console.log(this)
-//     console.log(arguments)
-//     return async function() { 
-//       console.log("second")
-//       console.log(this)
-//       console.log(arguments)
-//       return original.apply(this,arguments)}
-// })()
+Map.prototype.forEach =async function (done) {
+  var keys = Object.keys(this)
+  for (var index = 0; index < keys.length; index++) {
+    var key = keys[index]
+    var value = this.get(key)
+    console.log("override map.prototype")
+    await done(value, key)
+  }
+}
+Array.prototype.forEach = async function(done) {
+  // console.log(this)
+  for (let index = 0; index < this.length; index++) {
+    console.log("override prototype: "+this[index])
+    await done(this[index], index, this)
+  }
+}
 
 /*
   calculation equals to distance from user A time x to user B time x minus GPS accuracy minus zone
@@ -537,3 +485,4 @@ let scanning =async (scan, done)=> {
   result score for IMEI
   possible algorithm glitch is starting score of IMEI's and ending score
   which one is used? for calculating? previous period? 24 hours?
+*/
