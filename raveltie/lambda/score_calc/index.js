@@ -1,59 +1,57 @@
-/*
-Zone A 9 miles
-Zone B 6 miles
-Zone C 3  miles
-Zone D 1.5 miles (2,410  m)
-Zone E 0.78 miles (1,260 m)
-*/
 
-/*
-Time Period that users stuck along for 24 hours in zone A,B,C,D,E
-Time Period that users stuck along for 8 hours in zone A,B,C,D,E
-Time Period that users stuck along for 2.5 hours in zone A,B,C,D,E
-Time Period that users stuck along for (48 min)0.8 hours in zone A,B,C,D,E
-Time Period that users stuck along for (15 min)0.26 hours in zone A,B,C,D,E
-Time Period that users stuck along for (5 min) in zone A,B,C,D,E
-Time Period that users stuck along for (1 min) in zone A,B,C,D,E
-Time Period that users stuck along for (20 sec) in zone A,B,C,D,E
-*/
-console.log('Loading function')
+/**
+* Zone A 9 miles
+* Zone B 6 miles
+* Zone C 3  miles
+* Zone D 1.5 miles (2,410  m)
+* Zone E 0.78 miles (1,260 m) 
 
-const doc = require('dynamodb-doc')
-const date = require('date-and-time')
-const geolocation = require('geolocation-utils')
-const stackimpact = require('stackimpact')
-const dynamo = new doc.DynamoDB()
-const promisify = require('util').promisify
+* Time Period that users stuck along for 24 hours in zone A,B,C,D,E
+* Time Period that users stuck along for 8 hours in zone A,B,C,D,E
+* Time Period that users stuck along for 2.5 hours in zone A,B,C,D,E
+* Time Period that users stuck along for (48 min)0.8 hours in zone A,B,C,D,E
+* Time Period that users stuck along for (15 min)0.26 hours in zone A,B,C,D,E
+* Time Period that users stuck along for (5 min) in zone A,B,C,D,E
+* Time Period that users stuck along for (1 min) in zone A,B,C,D,E
+* Time Period that users stuck along for (20 sec) in zone A,B,C,D,E
+**/
 
-const agent = stackimpact.start({
-  agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
-  appName: "MyNodejsApp",
-  // cpuProfilerDisabled: false,
-  // allocationProfilerDisabled: false,
-  // asyncProfilerDisabled: false ,
-  // errorProfilerDisabled: false,
-  autoProfiling: false,
-  debug: true
-})
-
-const now = new Date()
-var last24Hours = date.addDays(now,-1)
-
-var imeisMap = new Map()
-var zones = [
-  {'zone':'A','radius':14484,'points':1},
-  {'zone':'B','radius':9656,'points':2},
-  {'zone':'C','radius':4828,'points':3},
-  {'zone':'D','radius':2414,'points':4},
-  {'zone':'E','radius':1255,'points':5} 
-]
-
-let sleep =async (ms)=> {
-  return new Promise(resolve => setTimeout(resolve, ms))
+{
+  var doc = require('dynamodb-doc')
+  var date = require('date-and-time')
+  var geolocation = require('geolocation-utils')
+  var stackimpact = require('stackimpact')
+  var dynamo = new doc.DynamoDB()
+  var promisify = require('util').promisify
+  var agent = stackimpact.start({
+    agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
+    appName: "MyNodejsApp",
+    autoProfiling: false,
+    debug: true
+  })
+  
 }
+
+{
+  var imeisMap = new Map()
+  var zones = [
+    {'zone':'A','radius':14484,'points':1},
+    {'zone':'B','radius':9656,'points':2},
+    {'zone':'C','radius':4828,'points':3},
+    {'zone':'D','radius':2414,'points':4},
+    {'zone':'E','radius':1255,'points':5} 
+  ]
+  var now = new Date()
+  var last24Hours = date.addDays(now,-1)
+}
+
+// let sleep =async (ms)=> {
+//   return new Promise(resolve => setTimeout(resolve, ms))
+// }
 exports.handler = async (event)=> {
 
-  // const span = await agent.profile()
+  const span = await agent.profile()
+
   try {
 
     await promisify(pullRaveltieData)()
@@ -71,12 +69,11 @@ exports.handler = async (event)=> {
     statusCode: 200,
     body: 'Done'
   }
-  return response
-
-  // await span.stop(()=> {
-  //   return response
-  // })
+  await span.stop(()=> {
+    return response
+  })
 }
+
 let pullRaveltieData =async (done)=> {
   //get all locations/scores of all imeis for last 24 hours
   var scan = {
@@ -95,7 +92,7 @@ let pullRaveltieData =async (done)=> {
 
 }
 let precheckRaveltie =async (done)=> {
-  console.log("processRaveltieData")
+  // console.log("precheckRaveltieData")
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
     // if(mainImei.imei === "9dd419498375d3b8ea10429670e432e80ecfa77697f6ecc943ad66de40425928")return
     console.log(mainImei.imei)
@@ -129,17 +126,16 @@ let precheckRaveltie =async (done)=> {
 }
 let processRaveltieData =async (done)=> {
   // console.log("processRaveltieData")
-  await imeisMap.forEach((mainImei, mainImeiKey)=> {
-      
-    await promisify(processRaveltieData2)()
+  await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
+    
+    await promisify(processRaveltieDataOverlapping)(mainImei)
+
+    await promisify(updateRaveltieScore)(mainImei,mainImeiKey)
 
   })//end imeisMap
   done(null,{})
 }
-let processRaveltieData2 =async (done)=> {
-
-  await promisify(processRaveltieData3)()
-
+let updateRaveltieScore =async (mainImei,mainImeiKey,done)=> {
   //Update score and delete processed locations?
   var updateScore = {
     TableName : 'raveltie2',
@@ -152,7 +148,7 @@ let processRaveltieData2 =async (done)=> {
     ReturnValues:"ALL_OLD"
   }
 
-  await promisify(dynamo.putItem)(updateScore)
+  var data = await promisify(dynamo.putItem.bind(dynamo))(updateScore)
 
   console.log(data)
   //maybe make sure that old score being replaced isn't higher
@@ -167,13 +163,8 @@ let processRaveltieData2 =async (done)=> {
         timestamp : location.timestamp.toString()
       }
     }
-    dynamo.deleteItem(deleteRequest, (err,data)=> {
-      if(err) {
-        console.log(err)
-      } else {
-        // console.log("deleted location for imei"+JSON.stringify(data))
-      }
-    })
+    var data2 = await promisify(dynamo.deleteItem.bind(dynamo))(deleteRequest)
+    console.log("deleted location for imei"+JSON.stringify(data2))
   })
 
 
@@ -188,16 +179,17 @@ let processRaveltieData2 =async (done)=> {
 
   done(null, {})
 }
-let processRaveltieData3 =async (done)=> {
+let processRaveltieDataOverlapping =async (mainImei,done)=> {
   //once all secondary Imeis are processed we can calculate new score for mainImei
-  await mainImei.overlapping.forEach((overlapping, index, array)=> {
+  await mainImei.overlapping.forEach(async (overlapping, index, array)=> {
 
-  await processRaveltieData4(done)
+    // await promisify(processRaveltieData4)()
 
   })//end main Imei Overlapping
+  done(null,{})
 }
 let processRaveltieData4 =async (done)=> {
-    // console.log("mainImei.overlapping")
+  // console.log("mainImei.overlapping")
   // console.log("locations array length"+mainImei.locations.length)
   var overlappingImei = imeisMap.get(overlapping.imei)
 
@@ -206,13 +198,14 @@ let processRaveltieData4 =async (done)=> {
   var secondaryTimestamp = 0
   var lastSecondaryIndexUsed = 0
   
-
   mainImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
-  await mainImei.locations.forEach((mainLocation,index,array)=> {
+  await mainImei.locations.forEach(async (mainLocation,index,array)=> {
 
-    processRaveltieData5(done)
+    await promisify(processRaveltieData5)()
       
   })//end main Imei Locations
+
+  done(null,{})
 }
 let processRaveltieData5 =async (done)=> {
   // console.log("main locations index: "+index+" length: "+array.length)
@@ -223,7 +216,7 @@ let processRaveltieData5 =async (done)=> {
   var matchingSecondaryLocation
 
   try {
-    processRaveltieData6(done)
+    await promisify(processRaveltieData6)()
 
   }catch(skipMainBreakException) {
       if(skipMainBreakException instanceof Error) {
@@ -233,12 +226,15 @@ let processRaveltieData5 =async (done)=> {
       }
       
   }
+  done(null,{})
 }
 let processRaveltieData6 =async (done)=> {
   overlappingImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
-  await overlappingImei.locations.forEach((secondaryLocation, secIndex, secArray)=> {
+  await overlappingImei.locations.forEach(async (secondaryLocation, secIndex, secArray)=> {
+    await promisify(processRaveltieData7)()
 
   })//end overlapping Imei Locations
+  done(null,{})
 }
 let processRaveltieData7 =async (done)=> {
 
@@ -249,30 +245,33 @@ let processRaveltieData7 =async (done)=> {
 
   secondaryTimestamp = secondaryLocation.timestamp
 
-  processRaveltieData8(done)
+  await promisify(processRaveltieData8)()
 
-  processRaveltieData9(done)
+  await promisify(processRaveltieData9)()
+
+  done(null,{})
 }
 let processRaveltie8 =async (done)=> {
-    // console.log("secondaryTimestamp: "+secondaryTimestamp+" MainTimestamp: "+mainTimestamp)
+  // console.log("secondaryTimestamp: "+secondaryTimestamp+" MainTimestamp: "+mainTimestamp)
   //find closest matching timestamp for main and secondary locations
   if(secondaryTimestamp >= mainTimestamp) {
     
-    rewind()
+    await promisify(rewind)()
 
   } else if(secondaryTimestamp <= mainTimestamp) {
     
-    forward()
+    await promisify(forward)()
 
   } else {
     console.log("Edge Case Exception")
   }
+  done(null,{})
 }
 let processRaveltieData9 =async (done)=> {
-    var ZoneBreakException = {}
+  var ZoneBreakException = {}
   try {
     // for now use zones but it's very expensive, so do a pre-Zone check
-    await zones.forEach((zoneValue,zI,zA)=> {
+    await zones.forEach(async (zoneValue,zI,zA)=> {
         //add attribute of location accuracy and sutract it from distance calculation
         //geolocation
         var distanceTo = geolocation
@@ -311,56 +310,58 @@ let processRaveltieData9 =async (done)=> {
         throw SkipMainBreakException
     }
   }
+  done(null,{})
 }
 
-let rewind =async ()=> {
-// console.log("Greater")
-    var rewindIndex = secIndex
-    var rewindTimestamp
-    do {
-      rewindTimestamp = secArray[rewindIndex].timestamp
-      if(rewindTimestamp < mainTimestamp) {
-        // console.log("Rewind--")
-        var forwardIndex = rewindIndex + 1
-        var forwardTimestamp = secArray[forwardIndex].timestamp
+let rewind =async (done)=> {
+  // console.log("Greater")
+  var rewindIndex = secIndex
+  var rewindTimestamp
+  do {
+    rewindTimestamp = secArray[rewindIndex].timestamp
+    if(rewindTimestamp < mainTimestamp) {
+      // console.log("Rewind--")
+      var forwardIndex = rewindIndex + 1
+      var forwardTimestamp = secArray[forwardIndex].timestamp
 
-        //figure which is closer
-        var rewindOffset = mainTimestamp - rewindTimestamp
-        var forwardOffset = forwardTimestamp - mainTimestamp
+      //figure which is closer
+      var rewindOffset = mainTimestamp - rewindTimestamp
+      var forwardOffset = forwardTimestamp - mainTimestamp
 
-        // console.log("forwardOffset: "+forwardOffset+
-        //     " rewindOffset: "+rewindOffset+" timestampOffset: "+timestampOffset)
+      // console.log("forwardOffset: "+forwardOffset+
+      //     " rewindOffset: "+rewindOffset+" timestampOffset: "+timestampOffset)
 
-        if(forwardOffset < rewindOffset &&
-         forwardOffset < timestampOffset) {
-            // console.log("Rewind--Rewind Offset")
-            //use forward secondary
-            matchingSecondaryLocation = secArray[forwardIndex]
-            lastSecondaryIndexUsed = forwardIndex
-            break
-        } else if(rewindOffset < forwardOffset &&
-         rewindOffset < timestampOffset) {
-            // console.log("Rewind--Forward Offset")
-            //use rewind secondary
-            matchingSecondaryLocation = secArray[rewindIndex]
-            lastSecondaryIndexUsed = rewindIndex
-            break
-        } else {
-          throw SkipMainBreakException//no close timestamps found
-        }
+      if(forwardOffset < rewindOffset &&
+       forwardOffset < timestampOffset) {
+          // console.log("Rewind--Rewind Offset")
+          //use forward secondary
+          matchingSecondaryLocation = secArray[forwardIndex]
+          lastSecondaryIndexUsed = forwardIndex
+          break
+      } else if(rewindOffset < forwardOffset &&
+       rewindOffset < timestampOffset) {
+          // console.log("Rewind--Forward Offset")
+          //use rewind secondary
+          matchingSecondaryLocation = secArray[rewindIndex]
+          lastSecondaryIndexUsed = rewindIndex
+          break
       } else {
-        // console.log("Greater-First")
+        throw SkipMainBreakException//no close timestamps found
       }
-      if(rewindIndex > 0) {
-        rewindIndex = rewindIndex - 1
-      } else {
-        throw SkipMainBreakException
-      }
-    } while (rewindTimestamp > (mainTimestamp - timestampOffset))
+    } else {
+      // console.log("Greater-First")
+    }
+    if(rewindIndex > 0) {
+      rewindIndex = rewindIndex - 1
+    } else {
+      throw SkipMainBreakException
+    }
+  } while (rewindTimestamp > (mainTimestamp - timestampOffset))
+  done(null,{})
 }
 
-let forward =async ()=> {
-// console.log("Lesser")
+let forward =async (done)=> {
+  // console.log("Lesser")
   var forwardIndex = secIndex
   var forwardTimestamp
   do {
@@ -406,6 +407,7 @@ let forward =async ()=> {
       throw SkipMainBreakException
     }
   } while (forwardTimestamp < (mainTimestamp + timestampOffset))
+  done(null,{})
 }
 
 let scanning =async (scan, done)=> {
