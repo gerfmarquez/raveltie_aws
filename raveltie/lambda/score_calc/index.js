@@ -55,8 +55,8 @@ exports.handler = async (event)=> {
 
   // const span = await agent.profile()
   try {
-    const done = await promisify(pullRaveltieData)()
-    console.log("done: "+JSON.stringify(done))
+
+    await promisify(pullRaveltieData)()
 
   } catch(promisifyError) {
     console.error(promisifyError)
@@ -91,9 +91,9 @@ let pullRaveltieData =async (done)=> {
     // ExpressionAttributeNames : {'#ts':'timestamp'}
   }
   
-  const scanning = await promisify(scanning)(scan,()=>{})
-  console.log(scanning)
-  // await done(null,)
+  await promisify(scanning)(scan)
+  
+  await done(null,{})
 
 }
 // let precheckRaveltie =async (done)=> {
@@ -417,7 +417,7 @@ let pullRaveltieData =async (done)=> {
 let scanning =async (scan, done)=> {
 
   const data = await promisify(dynamo.scan.bind(dynamo))(scan)
-  console.log("data: "+JSON.stringify(data))
+  // console.log("data: "+JSON.stringify(data.Items))
     // console.log("dynamo.scan")
     // if (err) {
     //     console.log(err)
@@ -461,37 +461,65 @@ let scanning =async (scan, done)=> {
     //   // }
     // }
   
-  //@todo remove
   var imeisArray = data.Items
-  imeisArray.forEach = async (done)=> {
-    for (let index = 0; index < this.length; index++) {
-      console.log("override array.prototype")
-      // await done(this[index], index, this)
-    }
+  // console.log("imeisArray.forEach")
+  
+  imeisArray.forEach = async ()=> {
+  console.log("for each!!!")
+  console.log(this)
   }
-
+  // console.log("await imeisArray")
   await imeisArray.forEach((value, index, array)=> {
     console.log("imeisArray")
   })
+
+
+  // console.log("result: "+JSON.stringify(result))
   //@todo remove
 
+  await done(null,{})
+
 }
-Map.prototype.forEach =async (done)=> {
-  var keys = Object.keys(this)
-  var values = Object.keys(this)
-  for (var index = 0; index < keys.length; index++) {
-    var key = keys[index]
-    var value = this.get(keys[index])
-    console.log("override map.prototype");
-    await done(value, key)
-  }
-}
-Array.prototype.forEach =async (done)=> {
-  for (let index = 0; index < this.length; index++) {
-    console.log("override array.prototype");
-    // await done(this[index], index, this)
-  }
-}
+// Map.prototype.forEach =async (done)=> {
+//   var keys = Object.keys(this)
+//   var values = Object.values(this)
+//   for (var index = 0; index < keys.length; index++) {
+//     var key = keys[index]
+//     var value = this.get(keys[index])
+//     console.log("override map.prototype");
+//     await done(value, key)
+//   }
+// }
+// Array.prototype.forEach = async ()=> {
+//   console.log("for each!!!")
+//   console.log(this.handler().then(
+//     function(result){
+//       console.log("promise result")
+//       console.log(result)
+//       console.log(this)
+//       console.log(arguments)
+//       return {}
+//     }))
+  
+  
+  // done(1,1,1)
+  // for (let index = 0; index < this.length; index++) {
+  //   console.log("override array.prototype");
+  //   await done(this[index], index, this)
+  // }
+// }
+// Array.prototype.forEach = (function() {
+//     var original = Array.prototype.forEach
+//     //Do what you want here.       
+//     console.log("first")
+//     console.log(this)
+//     console.log(arguments)
+//     return async function() { 
+//       console.log("second")
+//       console.log(this)
+//       console.log(arguments)
+//       return original.apply(this,arguments)}
+// })()
 
 /*
   calculation equals to distance from user A time x to user B time x minus GPS accuracy minus zone
@@ -509,4 +537,3 @@ Array.prototype.forEach =async (done)=> {
   result score for IMEI
   possible algorithm glitch is starting score of IMEI's and ending score
   which one is used? for calculating? previous period? 24 hours?
-*/
