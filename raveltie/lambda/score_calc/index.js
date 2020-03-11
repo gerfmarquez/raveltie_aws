@@ -29,10 +29,11 @@
     autoProfiling: false,
     debug: true
   })
-  
+
 }
 
 {
+  var PrecheckBreakException = {}
   var imeisMap = new Map()
   var zones = [
     {'zone':'A','radius':14484,'points':1},
@@ -50,13 +51,19 @@
 // }
 exports.handler = async (event)=> {
 
-  const span = await agent.profile()
+  // const span = await agent.profile()
 
   try {
 
-    await promisify(pullRaveltieData)()
-    await promisify(precheckRaveltie)()
-    await promisify(processRaveltieData)()
+    await pullRaveltieData()
+
+    await precheckRaveltie(async (data)=> {
+      // console.log("precheckRaveltie done param: "+JSON.stringify(data))
+
+      
+    })
+    console.log("result: "+JSON.stringify(result))
+    // await promisify(processRaveltieData)()
 
   } catch(promisifyError) {
     console.error(promisifyError)
@@ -69,12 +76,13 @@ exports.handler = async (event)=> {
     statusCode: 200,
     body: 'Done'
   }
-  await span.stop(()=> {
-    return response
-  })
+  // await span.stop(()=> {
+  //   return response
+  // })
+  return response
 }
 
-let pullRaveltieData =async (done)=> {
+let pullRaveltieData =async ()=> {
   //get all locations/scores of all imeis for last 24 hours
   var scan = {
     TableName : 'raveltie2',
@@ -86,27 +94,28 @@ let pullRaveltieData =async (done)=> {
     // ExpressionAttributeNames : {'#ts':'timestamp'}
   }
   
-  await promisify(scanning)(scan)
+  await scanning(scan)
   
-  await done(null,{})
-
 }
 let precheckRaveltie =async (done)=> {
   // console.log("precheckRaveltieData")
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
     // if(mainImei.imei === "9dd419498375d3b8ea10429670e432e80ecfa77697f6ecc943ad66de40425928")return
-    console.log(mainImei.imei)
+    // console.log("precheck key: "+JSON.stringify(mainImeiKey))
+    // console.log("precheck value: "+JSON.stringify(mainImei))
     console.log("precheck-mainImei")
+    if(mainImei.locations.length === 0) return
     var boundingBox = geolocation.getBoundingBox(mainImei.locations, zones[0].radius)//at least zone A
-    var PrecheckBreakException = {}
+    
     try {
       await imeisMap.forEach(async (secondaryImei,secondaryImeiKey)=> {
         if(mainImei.imei === secondaryImei.imei) return
         console.log("precheck-secondaryImei")
         await secondaryImei.locations.forEach(async (secondaryLocation,index,array)=> {
-          console.log("precheck-secondaryLocation")
+          console.log("precheck-secondaryLocation"+JSON.stringify(secondaryLocation))
           var inside = geolocation.insideBoundingBox(secondaryLocation,boundingBox)
           if(inside) {
+            console.log("inside precheck")
             mainImei.overlapping.push({'imei':secondaryImei.imei})
             throw PrecheckBreakException//skip to next secondaryImei, not yet time to do final processing
           }
@@ -120,9 +129,10 @@ let precheckRaveltie =async (done)=> {
         console.log("precheckBreakException")
       }
     }
-  })
 
-  await done(null,{})
+    done(data)
+  })
+  console.log("before precheck done")
 }
 let processRaveltieData =async (done)=> {
   // console.log("processRaveltieData")
@@ -163,8 +173,8 @@ let updateRaveltieScore =async (mainImei,mainImeiKey,done)=> {
         timestamp : location.timestamp.toString()
       }
     }
-    var data2 = await promisify(dynamo.deleteItem.bind(dynamo))(deleteRequest)
-    console.log("deleted location for imei"+JSON.stringify(data2))
+    // var data2 = await promisify(dynamo.deleteItem.bind(dynamo))(deleteRequest)
+    // console.log("deleted location for imei"+JSON.stringify(data2))
   })
 
 
@@ -216,7 +226,7 @@ let processRaveltieData5 =async (done)=> {
   var matchingSecondaryLocation
 
   try {
-    await promisify(processRaveltieData6)()
+    await promisify(fuseOverlap)()
 
   }catch(skipMainBreakException) {
       if(skipMainBreakException instanceof Error) {
@@ -228,7 +238,7 @@ let processRaveltieData5 =async (done)=> {
   }
   done(null,{})
 }
-let processRaveltieData6 =async (done)=> {
+let fuseOverlap =async (done)=> {
   overlappingImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
   await overlappingImei.locations.forEach(async (secondaryLocation, secIndex, secArray)=> {
     await promisify(processRaveltieData7)()
@@ -245,13 +255,13 @@ let processRaveltieData7 =async (done)=> {
 
   secondaryTimestamp = secondaryLocation.timestamp
 
-  await promisify(processRaveltieData8)()
+  await promisify(rewindOrForward)()
 
-  await promisify(processRaveltieData9)()
+  await promisify(fuseScore)()
 
   done(null,{})
 }
-let processRaveltie8 =async (done)=> {
+let rewindOrForward =async (done)=> {
   // console.log("secondaryTimestamp: "+secondaryTimestamp+" MainTimestamp: "+mainTimestamp)
   //find closest matching timestamp for main and secondary locations
   if(secondaryTimestamp >= mainTimestamp) {
@@ -267,7 +277,7 @@ let processRaveltie8 =async (done)=> {
   }
   done(null,{})
 }
-let processRaveltieData9 =async (done)=> {
+let fuseScore =async (done)=> {
   var ZoneBreakException = {}
   try {
     // for now use zones but it's very expensive, so do a pre-Zone check
@@ -410,7 +420,7 @@ let forward =async (done)=> {
   done(null,{})
 }
 
-let scanning =async (scan, done)=> {
+let scanning =async (scan)=> {
   // console.log("dynamo.scan")
   const data = await promisify(dynamo.scan.bind(dynamo))(scan)
   // console.log("data: "+JSON.stringify(data.Items))
@@ -442,11 +452,11 @@ let scanning =async (scan, done)=> {
   })
   if(typeof data.LastEvaluatedKey != "undefined") {
     scan.ExclusiveStartKey = data.LastEvaluatedKey
-    await scanning(scan,done)
+    await scanning(scan)
+    return
   } else {
-    await done(null,{})
+    return //    await done(null,{})
   }
-
 }
 Map.prototype.forEach =async function (done) {
   for (let [key, value] of this.entries()) {
@@ -454,12 +464,27 @@ Map.prototype.forEach =async function (done) {
     await done(value, key)
   }
 }
-Array.prototype.forEach = async function(done) {
+Array.prototype.forEach =async function(done) {
   // console.log(this)
   for (let index = 0; index < this.length; index++) {
     // console.log("override prototype: "+JSON.stringify(this[index]))
     await done(this[index], index, this)
   }
+}
+function Promisify(original) {
+  return function (...args) {
+    return new Promise((resolve, reject) => {
+      args.push((err, result) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(result);
+        }
+      });
+
+      original.apply(this, args);
+    });
+  };
 }
 
 /*
