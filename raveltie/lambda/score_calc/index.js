@@ -26,10 +26,9 @@
   var agent = stackimpact.start({
     agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
     appName: "MyNodejsApp",
-    autoProfiling: false,
+    autoProfiling: true,
     debug: true
   })
-
 }
 
 {
@@ -47,13 +46,11 @@
   var last24Hours = date.addDays(now,-1)
 }
 
-// let sleep =async (ms)=> {
-//   return new Promise(resolve => setTimeout(resolve, ms))
-// }
+let sleep =(ms)=> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 exports.handler = async (event)=> {
-
-  const span = await agent.profile()
-
+  
   try {
 
     var imeisMap = new Map()
@@ -73,16 +70,13 @@ exports.handler = async (event)=> {
   } catch(promisifyError) {
     console.error(promisifyError)
   }
-  
-
-  //TODO make sure removing callback still blocks javascript thread
  
   let response = {
     statusCode: 200,
     body: 'Done'
   }
-  await span.stop()
-  return response
+
+  return{"response":"200"}
 }
 
 let pullRaveltieData =async (imeisMap)=> {
@@ -98,6 +92,10 @@ let pullRaveltieData =async (imeisMap)=> {
   }
   
   await scanning(imeisMap,scan)
+  //sort once
+  await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
+    mainImei
+  })
 
   
 }
@@ -151,14 +149,13 @@ let processRaveltieData =async (imeisMap)=> {
       var secondaryTimestamp = 0
       var lastSecondaryIndexUsed = 0
       
-      mainImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
+      
       await mainImei.locations.forEach(async (mainLocation,index,array)=> {
 
         mainTimestamp = mainLocation.timestamp
         var matchingSecondaryLocation
 
         try {
-          overlappingImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
           await overlappingImei.locations.forEach(async (secondaryLocation, secIndex, secArray)=> {
             if(secIndex <= lastSecondaryIndexUsed) {
                 return//@todo efficiency
@@ -277,9 +274,6 @@ let fuseScore =async (mainLocation,matchingSecondaryLocation,mainImei,overlappin
             //score points
             mainImei.score += zoneValue.points
             overlappingImei.score += zoneValue.points
-
-            
-            
 
         } else {
             //no points
@@ -427,7 +421,7 @@ let scanning =async (imeisMap,scan)=> {
     await scanning(imeisMap,scan)
     return
   } else {
-    return //    await done(null,{})
+    return 
   }
 }
 Map.prototype.forEach =async function (done) {
