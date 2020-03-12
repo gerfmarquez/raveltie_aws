@@ -51,25 +51,22 @@
   ]
   var now = new Date()
   var last24Hours = date.addDays(now,-1)
+  
 }
 
-let sleep =(ms)=> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
+
 exports.handler = async (event)=> {
   
   try {
-
     var imeisMap = new Map()
-    await pullRaveltieData(imeisMap)
+    await pullRaveltieData(async (data)=> {
+      await transformRaveltieData(imeisMap,data)
 
-    await precheckRaveltie(imeisMap,async (mainImei,secondaryImei,secondaryLocation,boundingBox)=> {
-      var inside = geolocation.insideBoundingBox(secondaryLocation,boundingBox)
-      if(inside) {
-        mainImei.overlapping.push({'imei':secondaryImei.imei})
-        
-        return PrecheckBreakException//skip to next secondaryImei, not yet time to do final processing
-      }
+    })
+    await sortTimestamps(imeisMap)
+
+    await detectOverlaps(imeisMap,async (imei,overlap)=> {
+        imei.overlapping.push({'imei':overlap.imei})
     })
     
     await processRaveltieData(imeisMap)
@@ -86,7 +83,7 @@ exports.handler = async (event)=> {
   return{"response":"200"}
 }
 
-let pullRaveltieData =async (imeisMap)=> {
+let pullRaveltieData =async (done)=> {
   //get all locations/scores of all imeis for last 24 hours
   var scan = {
     TableName : 'raveltie2',
@@ -98,23 +95,14 @@ let pullRaveltieData =async (imeisMap)=> {
     // ExpressionAttributeNames : {'#ts':'timestamp'}
   }
   
-  await scanning(imeisMap,scan)
-  //sort once after extracting 
-  await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
-    if(typeof mainImei.locations != "undefined") {
-      mainImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
-    }
-  })
-
-  
+  await scanning(scan,done)
 }
-let precheckRaveltie =async (imeisMap,done)=> {
+let detectOverlaps =async (imeisMap,done)=> {
   
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
     if(mainImei.locations.length === 0) return
 
     // if(mainImei.imei === "9dd419498375d3b8ea10429670e432e80ecfa77697f6ecc943ad66de40425928")return
-
 
     var boundingBox = geolocation.getBoundingBox(mainImei.locations, zones[0].radius)//at least zone A
     try {
@@ -124,10 +112,12 @@ let precheckRaveltie =async (imeisMap,done)=> {
 
         await secondaryImei.locations.forEach(async (secondaryLocation,index,array)=> {
 
-
-          var precheckBreakException = await done(mainImei,secondaryImei,secondaryLocation,boundingBox)
-          throw precheckBreakException
-          
+          var inside = geolocation.insideBoundingBox(secondaryLocation,boundingBox)
+          if(inside) {
+            await done(mainImei,secondaryImei)
+            
+            throw PrecheckBreakException//skip to next secondaryImei, not yet time to do final processing
+          }
         }) 
 
       })
@@ -145,7 +135,6 @@ let processRaveltieData =async (imeisMap)=> {
 
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
     
-
     //once all secondary Imeis are processed we can calculate new score for mainImei
     await mainImei.overlapping.forEach(async (overlapping, index, array)=> {
 
@@ -154,32 +143,28 @@ let processRaveltieData =async (imeisMap)=> {
       if(typeof overlappingImei == "undefined") return
 
 
-      var mainTimestamp = 0
-      var secondaryTimestamp = 0
-      var lastSecondaryIndexUsed = 0
+      var trackingIndex = 0
 
-      
-      
       await mainImei.locations.forEach(async (mainLocation,index,array)=> {
 
-        mainTimestamp = mainLocation.timestamp
         var matchingSecondaryLocation
 
         try {
           await overlappingImei.locations.forEach(async (secondaryLocation, secIndex, secArray)=> {
-            if(secIndex <= lastSecondaryIndexUsed) {
+            if(secIndex <= trackingIndex) {
                 return//@todo efficiency
             }
 
-
-            secondaryTimestamp = secondaryLocation.timestamp
-
-            var [matchingSecondaryLocation,lastSecondaryIndexUsed,skipMainBreakException] = 
-              await rewindOrForward(mainTimestamp,secondaryTimestamp,secIndex,secArray)
+            var [index, skipMainBreakException] = 
+              await rewindOrForward(
+                mainLocation.timestamp, secondaryLocation.timestamp,  secIndex, secArray)
 
             if(skipMainBreakException) throw SkipMainBreakException
 
-            await fuseScore(mainLocation,matchingSecondaryLocation,mainImei,overlappingImei)
+            trackingIndex = index
+            var trackingLocation = secArray[trackingIndex]
+
+            await fuseScore(mainLocation,trackingLocation,mainImei,overlappingImei)
 
           })//end overlapping Imei Locations)
 
@@ -207,7 +192,8 @@ let updateRaveltieScore =async (imeisMap,mainImei,mainImeiKey)=> {
     Item : {
       imei : mainImei.imei,
       timestamp : 'score',
-      score : (mainImei.score + mainImei.newscore)
+      // score : (mainImei.score + mainImei.newscore)
+      score : mainImei.score
     },
     // UpdateExpression: '',
     ReturnValues:"ALL_OLD"
@@ -242,20 +228,17 @@ let updateRaveltieScore =async (imeisMap,mainImei,mainImeiKey)=> {
   //once finish processing delete overlapping imei's for current zone
   mainImei.overlapping = []
   mainImei.locations = []//free up some memory?
-
-
-
 }
-let rewindOrForward =async (mainTimestamp,secondaryTimestamp,secIndex,secArray)=> {
+let rewindOrForward =async (timestamp,secondaryTimestamp,secIndex,secArray)=> {
 
   //find closest matching timestamp for main and secondary locations
-  if(secondaryTimestamp >= mainTimestamp) {
+  if(secondaryTimestamp >= timestamp) {
     
-    return await rewind(secIndex,secArray,mainTimestamp)
+    return await rewind(secIndex,secArray,timestamp)
 
-  } else if(secondaryTimestamp <= mainTimestamp) {
+  } else if(secondaryTimestamp <= timestamp) {
     
-    return await forward(secIndex,secArray,mainTimestamp)
+    return await forward(secIndex,secArray,timestamp)
 
   } else {
     throw new Error("Serious Error")
@@ -282,8 +265,8 @@ let fuseScore =async (mainLocation,matchingSecondaryLocation,mainImei,overlappin
             mainLocation.accuracy - 
                 matchingSecondaryLocation.accuracy) < zoneValue.radius) {
             //score points
-            mainImei.newscore += (mainImei.score * zoneValue.points)
-            overlappingImei.newscore += (overlappingImei.score * zoneValue.points)
+            mainImei.score +=  zoneValue.points
+            overlappingImei.score +=  zoneValue.points
 
         } else {
             //no points
@@ -291,9 +274,8 @@ let fuseScore =async (mainLocation,matchingSecondaryLocation,mainImei,overlappin
             //when there aren't any matching big zones,
             //least will there be matching smaller zones
         }
-        throw ZoneBreakException
     })//end zones
-
+    throw ZoneBreakException
   }catch(zonesBreakException) {
     if(zonesBreakException instanceof Error) {
         throw zonesBreakException
@@ -301,23 +283,22 @@ let fuseScore =async (mainLocation,matchingSecondaryLocation,mainImei,overlappin
         throw SkipMainBreakException
     }
   }
-
 }
 
-let rewind =async (secIndex,secArray,mainTimestamp)=> {
+let rewind =async (secIndex,secArray,timestamp)=> {
   // console.log("Greater")
   var rewindIndex = secIndex
   var rewindTimestamp
   do {
     rewindTimestamp = secArray[rewindIndex].timestamp
-    if(rewindTimestamp < mainTimestamp) {
+    if(rewindTimestamp < timestamp) {
       // console.log("Rewind--")
       var forwardIndex = rewindIndex + 1
       var forwardTimestamp = secArray[forwardIndex].timestamp
 
       //figure which is closer
-      var rewindOffset = mainTimestamp - rewindTimestamp
-      var forwardOffset = forwardTimestamp - mainTimestamp
+      var rewindOffset = timestamp - rewindTimestamp
+      var forwardOffset = forwardTimestamp - timestamp
 
       // console.log("forwardOffset: "+forwardOffset+
       //     " rewindOffset: "+rewindOffset+" timestampOffset: "+timestampOffset)
@@ -326,18 +307,14 @@ let rewind =async (secIndex,secArray,mainTimestamp)=> {
        forwardOffset < timestampOffset) {
           // console.log("Rewind--Rewind Offset")
           //use forward secondary
-          matchingSecondaryLocation = secArray[forwardIndex]
-          lastSecondaryIndexUsed = forwardIndex
-          return [matchingSecondaryLocation,lastSecondaryIndexUsed,null]
+          return [forwardIndex,null]
       } else if(rewindOffset < forwardOffset &&
        rewindOffset < timestampOffset) {
           // console.log("Rewind--Forward Offset")
           //use rewind secondary
-          matchingSecondaryLocation = secArray[rewindIndex]
-          lastSecondaryIndexUsed = rewindIndex
-          return [matchingSecondaryLocation,lastSecondaryIndexUsed,null]
+          return [rewindIndex,null]
       } else {
-        return [null,null,SkipMainBreakException]//no close timestamps found
+        return [null,SkipMainBreakException]//no close timestamps found
       }
     } else {
       // console.log("Greater-First")
@@ -345,19 +322,18 @@ let rewind =async (secIndex,secArray,mainTimestamp)=> {
     if(rewindIndex > 0) {
       rewindIndex = rewindIndex - 1
     } else {
-      return [null,null,SkipMainBreakException]
+      return [null,SkipMainBreakException]
     }
-  } while (rewindTimestamp > (mainTimestamp - timestampOffset))
-
+  } while (rewindTimestamp > (timestamp - timestampOffset))
 }
 
-let forward =async (secIndex,secArray,mainTimestamp)=> {
+let forward =async (secIndex,secArray,timestamp)=> {
   // console.log("Lesser")
   var forwardIndex = secIndex
   var forwardTimestamp
   do {
     forwardTimestamp = secArray[forwardIndex].timestamp
-    if(forwardTimestamp > mainTimestamp) {
+    if(forwardTimestamp > timestamp) {
       // console.log("Forward--")
       var rewindIndex = forwardIndex - 1
 
@@ -365,8 +341,8 @@ let forward =async (secIndex,secArray,mainTimestamp)=> {
       var rewindTimestamp = secArray[rewindIndex].timestamp
 
       //figure which is closer
-      var forwardOffset = forwardTimestamp - mainTimestamp
-      var rewindOffset = mainTimestamp - rewindTimestamp
+      var forwardOffset = forwardTimestamp - timestamp
+      var rewindOffset = timestamp - rewindTimestamp
 
       // console.log("forwardOffset: "+forwardOffset+
       //     " rewindOffset: "+rewindOffset+" timestampOffset: "+timestampOffset)
@@ -375,18 +351,14 @@ let forward =async (secIndex,secArray,mainTimestamp)=> {
        forwardOffset < timestampOffset) {
           // console.log("Forward--Forward Offset")
           //use forward secondary5
-          matchingSecondaryLocation = secArray[forwardIndex]
-          lastSecondaryIndexUsed = forwardIndex
-          return [matchingSecondaryLocation,lastSecondaryIndexUsed,null]
+          return [forwardIndex,null]
       } else if(rewindOffset < forwardOffset &&
        rewindOffset < timestampOffset) {
         // console.log("Forward--Rewind Offset")
         //use rewind secondary
-        matchingSecondaryLocation = secArray[rewindIndex]
-        lastSecondaryIndexUsed = rewindIndex
-        return [matchingSecondaryLocation,lastSecondaryIndexUsed,null]
+        return [rewindIndex,null]
       } else {
-        return [null,null,SkipMainBreakException]//no close timestamps found
+        return [null,SkipMainBreakException]//no close timestamps found
       }
     } else {
         // console.log("Lesser-First")
@@ -395,43 +367,52 @@ let forward =async (secIndex,secArray,mainTimestamp)=> {
     if(forwardIndex < secArray.length-1) {
       forwardIndex = forwardIndex + 1
     } else {
-      throw SkipMainBreakException
+      return [null,SkipMainBreakException]
     }
-  } while (forwardTimestamp < (mainTimestamp + timestampOffset))
-
+  } while (forwardTimestamp < (timestamp + timestampOffset))
 }
 
-let scanning =async (imeisMap,scan)=> {
+let scanning =async (scan,done)=> {
 
   const data = await promisify(dynamo.scan.bind(dynamo))(scan)
-  var imeisArray = data.Items
+  var scanResults = data.Items
 
-  await imeisArray.forEach(async (value, index, array)=> {
-
-    var imeiMapItem = null
-    if(imeisMap.has(value.imei)) {
-        imeiMapItem = imeisMap.get(value.imei)
-    } else {
-      imeisMap.set(
-        value.imei,{'imei':value.imei,'score':0,'newscore':0,'locations':[],'overlapping':[]})
-      imeiMapItem = imeisMap.get(value.imei)
-    }
-
-    if(value.timestamp === 'score') {
-      imeiMapItem.score = Number(value.score)
-    } else {
-      imeiMapItem.locations.push(
-          {'lat':Number(value.lat), 'lon':Number(value.lon),
-          'accuracy':Number(value.accuracy),
-          'timestamp':Number(value.timestamp)})
-    }
+  await scanResults.forEach(async (value, index, array)=> {
+    done(value)
   })
   if(typeof data.LastEvaluatedKey != "undefined") {
     scan.ExclusiveStartKey = data.LastEvaluatedKey
-    await scanning(imeisMap,scan)
+    await scanning(scan,done)
     return
   } else {
     return 
+  }
+}
+let sortTimestamps =async (imeisMap)=> {
+  //sort once after extracting 
+  await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
+    if(typeof mainImei.locations != "undefined") {
+      mainImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
+    }
+  })
+}
+let transformRaveltieData =async (imeisMap,data)=> {
+  var imeiMapItem = null
+  if(imeisMap.has(data.imei)) {
+      imeiMapItem = imeisMap.get(data.imei)
+  } else {
+    imeisMap.set(
+      data.imei,{'imei':data.imei,'score':0,'newscore':0,'locations':[],'overlapping':[]})
+    imeiMapItem = imeisMap.get(data.imei)
+  }
+
+  if(data.timestamp === 'score') {
+    imeiMapItem.score = Number(data.score)
+  } else {
+    imeiMapItem.locations.push(
+        {'lat':Number(data.lat), 'lon':Number(data.lon),
+        'accuracy':Number(data.accuracy),
+        'timestamp':Number(data.timestamp)})
   }
 }
 Map.prototype.forEach =async function (done) {
