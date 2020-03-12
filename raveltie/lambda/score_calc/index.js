@@ -36,11 +36,18 @@
   var SkipMainBreakException = {}
   var timestampOffset = 30 * 1000//30 seconds
   var zones = [
-    {'zone':'A','radius':14484,'points':1},
-    {'zone':'B','radius':9656,'points':2},
-    {'zone':'C','radius':4828,'points':3},
-    {'zone':'D','radius':2414,'points':4},
-    {'zone':'E','radius':1255,'points':5} 
+    {'zone':'A','radius':14484,'points':.01},/* 1% */
+    {'zone':'B','radius':9656,'points':.02},/* 2% */
+    {'zone':'C','radius':4828,'points':.03},/* 3% */
+    {'zone':'D','radius':2414,'points':.04},/* 4% */
+    {'zone':'E','radius':1255,'points':.05} /* 5% */
+  ]
+  var periods = [
+    {'period':.15, 'coverage': .65, 'reward': 1.00},
+    {'period':.48, 'coverage': .65, 'reward': 1.00},
+    {'period':2.5, 'coverage': .65, 'reward': 1.00},
+    {'period':24, 'coverage': .65, 'reward': 1.00},
+    {'period':8, 'coverage': .65, 'reward': 1.00},
   ]
   var now = new Date()
   var last24Hours = date.addDays(now,-1)
@@ -92,9 +99,11 @@ let pullRaveltieData =async (imeisMap)=> {
   }
   
   await scanning(imeisMap,scan)
-  //sort once
+  //sort once after extracting 
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
-    mainImei
+    if(typeof mainImei.locations != "undefined") {
+      mainImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
+    }
   })
 
   
@@ -148,6 +157,7 @@ let processRaveltieData =async (imeisMap)=> {
       var mainTimestamp = 0
       var secondaryTimestamp = 0
       var lastSecondaryIndexUsed = 0
+
       
       
       await mainImei.locations.forEach(async (mainLocation,index,array)=> {
@@ -164,10 +174,10 @@ let processRaveltieData =async (imeisMap)=> {
 
             secondaryTimestamp = secondaryLocation.timestamp
 
-            var [matchingSecondaryLocation,lastSecondaryIndexUsed,SkipMainBreakException] = 
+            var [matchingSecondaryLocation,lastSecondaryIndexUsed,skipMainBreakException] = 
               await rewindOrForward(mainTimestamp,secondaryTimestamp,secIndex,secArray)
 
-            if(SkipMainBreakException) throw SkipMainBreakException
+            if(skipMainBreakException) throw SkipMainBreakException
 
             await fuseScore(mainLocation,matchingSecondaryLocation,mainImei,overlappingImei)
 
@@ -197,7 +207,7 @@ let updateRaveltieScore =async (imeisMap,mainImei,mainImeiKey)=> {
     Item : {
       imei : mainImei.imei,
       timestamp : 'score',
-      score : mainImei.score
+      score : (mainImei.score + mainImei.newscore)
     },
     // UpdateExpression: '',
     ReturnValues:"ALL_OLD"
@@ -272,8 +282,8 @@ let fuseScore =async (mainLocation,matchingSecondaryLocation,mainImei,overlappin
             mainLocation.accuracy - 
                 matchingSecondaryLocation.accuracy) < zoneValue.radius) {
             //score points
-            mainImei.score += zoneValue.points
-            overlappingImei.score += zoneValue.points
+            mainImei.newscore += (mainImei.score * zoneValue.points)
+            overlappingImei.newscore += (overlappingImei.score * zoneValue.points)
 
         } else {
             //no points
@@ -403,7 +413,7 @@ let scanning =async (imeisMap,scan)=> {
         imeiMapItem = imeisMap.get(value.imei)
     } else {
       imeisMap.set(
-        value.imei,{'imei':value.imei,'score':0,'locations':[],'overlapping':[]})
+        value.imei,{'imei':value.imei,'score':0,'newscore':0,'locations':[],'overlapping':[]})
       imeiMapItem = imeisMap.get(value.imei)
     }
 
