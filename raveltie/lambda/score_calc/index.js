@@ -52,7 +52,7 @@
 // }
 exports.handler = async (event)=> {
 
-  // const span = await agent.profile()
+  const span = await agent.profile()
 
   try {
 
@@ -81,9 +81,7 @@ exports.handler = async (event)=> {
     statusCode: 200,
     body: 'Done'
   }
-  // await span.stop(()=> {
-  //   return response
-  // })
+  await span.stop()
   return response
 }
 
@@ -133,6 +131,7 @@ let precheckRaveltie =async (imeisMap,done)=> {
 
       }
     }
+  })
 
 }
 let processRaveltieData =async (imeisMap)=> {
@@ -195,7 +194,6 @@ let processRaveltieData =async (imeisMap)=> {
 
 }
 let updateRaveltieScore =async (imeisMap,mainImei,mainImeiKey)=> {
-
   //Update score and delete processed locations?
   var updateScore = {
     TableName : 'raveltie2',
