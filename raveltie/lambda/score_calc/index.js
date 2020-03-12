@@ -34,7 +34,8 @@
 
 {
   var PrecheckBreakException = {}
-  var imeisMap = new Map()
+  var SkipMainBreakException = {}
+  var timestampOffset = 30 * 1000//30 seconds
   var zones = [
     {'zone':'A','radius':14484,'points':1},
     {'zone':'B','radius':9656,'points':2},
@@ -55,9 +56,10 @@ exports.handler = async (event)=> {
 
   try {
 
-    await pullRaveltieData()
+    var imeisMap = new Map()
+    await pullRaveltieData(imeisMap)
 
-    await precheckRaveltie(async (mainImei,secondaryImei,secondaryLocation,boundingBox)=> {
+    await precheckRaveltie(imeisMap,async (mainImei,secondaryImei,secondaryLocation,boundingBox)=> {
       var inside = geolocation.insideBoundingBox(secondaryLocation,boundingBox)
       if(inside) {
         mainImei.overlapping.push({'imei':secondaryImei.imei})
@@ -65,8 +67,8 @@ exports.handler = async (event)=> {
         return PrecheckBreakException//skip to next secondaryImei, not yet time to do final processing
       }
     })
-
-    await processRaveltieData()
+    
+    await processRaveltieData(imeisMap)
 
   } catch(promisifyError) {
     console.error(promisifyError)
@@ -85,7 +87,7 @@ exports.handler = async (event)=> {
   return response
 }
 
-let pullRaveltieData =async ()=> {
+let pullRaveltieData =async (imeisMap)=> {
   //get all locations/scores of all imeis for last 24 hours
   var scan = {
     TableName : 'raveltie2',
@@ -97,22 +99,25 @@ let pullRaveltieData =async ()=> {
     // ExpressionAttributeNames : {'#ts':'timestamp'}
   }
   
-  await scanning(scan)
+  await scanning(imeisMap,scan)
+
   
 }
-let precheckRaveltie =async (done)=> {
+let precheckRaveltie =async (imeisMap,done)=> {
   // console.log("precheckRaveltieData")
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
     if(mainImei.locations.length === 0) return
+
     // if(mainImei.imei === "9dd419498375d3b8ea10429670e432e80ecfa77697f6ecc943ad66de40425928")return
     // console.log("precheck key: "+JSON.stringify(mainImeiKey))
     // console.log("precheck-mainImei")
-    console.log("precheck value: "+JSON.stringify(mainImei.imei))
+    // console.log("precheck value: "+JSON.stringify(mainImei.imei))
 
     var boundingBox = geolocation.getBoundingBox(mainImei.locations, zones[0].radius)//at least zone A
     try {
       await imeisMap.forEach(async (secondaryImei,secondaryImeiKey)=> {
         if(mainImei.imei === secondaryImei.imei) return
+        // if(mainImei.overlapping.includes())
         // console.log("precheck-secondaryImei")
         await secondaryImei.locations.forEach(async (secondaryLocation,index,array)=> {
           // console.log("precheck-secondaryLocation"+JSON.stringify(secondaryLocation))
@@ -128,67 +133,74 @@ let precheckRaveltie =async (done)=> {
       if(precheckBreakException instanceof Error) {
         throw precheckBreakException
       } else {
-        console.log("precheckBreakException")
+        // console.log("precheckBreakException")
       }
     }
   })
-  console.log("before precheck done")
+  // console.log("before precheck done")
 }
-let processRaveltieData =async ()=> {
+let processRaveltieData =async (imeisMap)=> {
   // console.log("processRaveltieData")
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
     
+    // console.log("process imei: "+mainImei.imei+" overlapping: "+JSON.stringify(mainImei.overlapping))
+    // console.log(imeisMap)
     //once all secondary Imeis are processed we can calculate new score for mainImei
     await mainImei.overlapping.forEach(async (overlapping, index, array)=> {
 
-    var overlappingImei = imeisMap.get(overlapping.imei)
+      var overlappingImei = imeisMap.get(overlapping.imei)
 
-    var timestampOffset = 30 * 1000//30 seconds
-    var mainTimestamp = 0
-    var secondaryTimestamp = 0
-    var lastSecondaryIndexUsed = 0
-    
-    mainImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
-    await mainImei.locations.forEach(async (mainLocation,index,array)=> {
+      if(typeof overlappingImei == "undefined") return
 
-      mainTimestamp = mainLocation.timestamp
-      var SkipMainBreakException = {}
-      var matchingSecondaryLocation
 
-      try {
-        overlappingImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
-        await overlappingImei.locations.forEach(async (secondaryLocation, secIndex, secArray)=> {
-          if(secIndex <= lastSecondaryIndexUsed) {
-              return//@todo efficiency
+      var mainTimestamp = 0
+      var secondaryTimestamp = 0
+      var lastSecondaryIndexUsed = 0
+      
+      mainImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
+      await mainImei.locations.forEach(async (mainLocation,index,array)=> {
+
+        mainTimestamp = mainLocation.timestamp
+        var matchingSecondaryLocation
+
+        try {
+          overlappingImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
+          await overlappingImei.locations.forEach(async (secondaryLocation, secIndex, secArray)=> {
+            if(secIndex <= lastSecondaryIndexUsed) {
+                return//@todo efficiency
+            }
+            // console.log("secondaryLocation index: "+secIndex+" mainLocationIndex: "+index)
+
+            secondaryTimestamp = secondaryLocation.timestamp
+
+            var [matchingSecondaryLocation,lastSecondaryIndexUsed,SkipMainBreakException] = 
+              await rewindOrForward(mainTimestamp,secondaryTimestamp,secIndex,secArray)
+
+            if(SkipMainBreakException) throw SkipMainBreakException
+
+            await fuseScore(mainLocation,matchingSecondaryLocation,mainImei,overlappingImei)
+
+          })//end overlapping Imei Locations)
+
+        }catch(skipMainBreakException) {
+          if(skipMainBreakException instanceof Error) {
+              throw skipMainBreakException
+          } else {
+              // console.log("skipMainBreakException")
           }
-          // console.log("secondaryLocation index: "+secIndex+" mainLocationIndex: "+index)
-
-          secondaryTimestamp = secondaryLocation.timestamp
-
-          await rewindOrForward()
-
-          await fuseScore()
-
-        })//end overlapping Imei Locations)
-
-      }catch(skipMainBreakException) {
-        if(skipMainBreakException instanceof Error) {
-            throw skipMainBreakException
-        } else {
-            // console.log("skipMainBreakException")
         }
-          
-      }
-          
-    })//end main Imei Locations
+            
+      })//end main Imei Locations
 
-  })//end main Imei Overlapping
+    })//end main Imei Overlapping
 
-  await updateRaveltieScore(mainImei,mainImeiKey)
+    await updateRaveltieScore(imeisMap,mainImei,mainImeiKey)
 
-})//end imeisMap
+  })//end imeisMap
+
 }
-let updateRaveltieScore =async (mainImei,mainImeiKey,done)=> {
+let updateRaveltieScore =async (imeisMap,mainImei,mainImeiKey)=> {
+
   //Update score and delete processed locations?
   var updateScore = {
     TableName : 'raveltie2',
@@ -200,10 +212,10 @@ let updateRaveltieScore =async (mainImei,mainImeiKey,done)=> {
     // UpdateExpression: '',
     ReturnValues:"ALL_OLD"
   }
-
+  
   var data = await promisify(dynamo.putItem.bind(dynamo))(updateScore)
 
-  console.log(data)
+  // console.log(data)
   //maybe make sure that old score being replaced isn't higher
 
 
@@ -222,34 +234,36 @@ let updateRaveltieScore =async (mainImei,mainImeiKey,done)=> {
 
 
   //discard mainImei and update to database but increase secondaryImei score too
+  // console.log("imei map keys: "+JSON.stringify(imeisMap))
+  // console.log(imeisMap)
   imeisMap.delete(mainImeiKey)
+
+  // console.log("delete imei key: "+JSON.stringify(imeisMap))
 
   //once finish processing delete overlapping imei's for current zone
   mainImei.overlapping = []
-  mainImei.locations = null//free up some memory?
+  mainImei.locations = []//free up some memory?
 
-  console.log(JSON.stringify(mainImei))
+  // console.log(JSON.stringify(mainImei))
 
 }
-
-
-let rewindOrForward =async ()=> {
+let rewindOrForward =async (mainTimestamp,secondaryTimestamp,secIndex,secArray)=> {
   // console.log("secondaryTimestamp: "+secondaryTimestamp+" MainTimestamp: "+mainTimestamp)
   //find closest matching timestamp for main and secondary locations
   if(secondaryTimestamp >= mainTimestamp) {
     
-    await rewind()
+    return await rewind(secIndex,secArray,mainTimestamp)
 
   } else if(secondaryTimestamp <= mainTimestamp) {
     
-    await forward()
+    return await forward(secIndex,secArray,mainTimestamp)
 
   } else {
-    console.log("Edge Case Exception")
+    throw new Error("Serious Error")
   }
 
 }
-let fuseScore =async ()=> {
+let fuseScore =async (mainLocation,matchingSecondaryLocation,mainImei,overlappingImei)=> {
   var ZoneBreakException = {}
   try {
     // for now use zones but it's very expensive, so do a pre-Zone check
@@ -295,7 +309,7 @@ let fuseScore =async ()=> {
 
 }
 
-let rewind =async ()=> {
+let rewind =async (secIndex,secArray,mainTimestamp)=> {
   // console.log("Greater")
   var rewindIndex = secIndex
   var rewindTimestamp
@@ -319,16 +333,16 @@ let rewind =async ()=> {
           //use forward secondary
           matchingSecondaryLocation = secArray[forwardIndex]
           lastSecondaryIndexUsed = forwardIndex
-          break
+          return [matchingSecondaryLocation,lastSecondaryIndexUsed,null]
       } else if(rewindOffset < forwardOffset &&
        rewindOffset < timestampOffset) {
           // console.log("Rewind--Forward Offset")
           //use rewind secondary
           matchingSecondaryLocation = secArray[rewindIndex]
           lastSecondaryIndexUsed = rewindIndex
-          break
+          return [matchingSecondaryLocation,lastSecondaryIndexUsed,null]
       } else {
-        throw SkipMainBreakException//no close timestamps found
+        return [null,null,SkipMainBreakException]//no close timestamps found
       }
     } else {
       // console.log("Greater-First")
@@ -336,12 +350,13 @@ let rewind =async ()=> {
     if(rewindIndex > 0) {
       rewindIndex = rewindIndex - 1
     } else {
-      throw SkipMainBreakException
+      return [null,null,SkipMainBreakException]
     }
   } while (rewindTimestamp > (mainTimestamp - timestampOffset))
+
 }
 
-let forward =async ()=> {
+let forward =async (secIndex,secArray,mainTimestamp)=> {
   // console.log("Lesser")
   var forwardIndex = secIndex
   var forwardTimestamp
@@ -367,16 +382,16 @@ let forward =async ()=> {
           //use forward secondary5
           matchingSecondaryLocation = secArray[forwardIndex]
           lastSecondaryIndexUsed = forwardIndex
-          break
+          return [matchingSecondaryLocation,lastSecondaryIndexUsed,null]
       } else if(rewindOffset < forwardOffset &&
        rewindOffset < timestampOffset) {
         // console.log("Forward--Rewind Offset")
         //use rewind secondary
         matchingSecondaryLocation = secArray[rewindIndex]
         lastSecondaryIndexUsed = rewindIndex
-        break
+        return [matchingSecondaryLocation,lastSecondaryIndexUsed,null]
       } else {
-        throw SkipMainBreakException//no close timestamps found
+        return [null,null,SkipMainBreakException]//no close timestamps found
       }
     } else {
         // console.log("Lesser-First")
@@ -388,9 +403,10 @@ let forward =async ()=> {
       throw SkipMainBreakException
     }
   } while (forwardTimestamp < (mainTimestamp + timestampOffset))
+
 }
 
-let scanning =async (scan)=> {
+let scanning =async (imeisMap,scan)=> {
   // console.log("dynamo.scan")
   const data = await promisify(dynamo.scan.bind(dynamo))(scan)
   // console.log("data: "+JSON.stringify(data.Items))
@@ -418,24 +434,25 @@ let scanning =async (scan)=> {
           'accuracy':Number(value.accuracy),
           'timestamp':Number(value.timestamp)})
       // console.log( JSON.stringify(imeiMapItem.locations))
+      // console.log(imeisMap)
     }
   })
   if(typeof data.LastEvaluatedKey != "undefined") {
     scan.ExclusiveStartKey = data.LastEvaluatedKey
-    await scanning(scan)
+    await scanning(imeisMap,scan)
     return
   } else {
     return //    await done(null,{})
   }
 }
 Map.prototype.forEach =async function (done) {
-  for (let [key, value] of this.entries()) {
+  for (let [key, value] of this) { 
+    // console.log(key)
     // console.log("override map.prototype"+JSON.stringify(value))
     await done(value, key)
   }
 }
 Array.prototype.forEach =async function(done) {
-  // console.log(this)
   for (let index = 0; index < this.length; index++) {
     // console.log("override prototype: "+JSON.stringify(this[index]))
     await done(this[index], index, this)
