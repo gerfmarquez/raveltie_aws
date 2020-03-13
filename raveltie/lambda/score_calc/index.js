@@ -49,23 +49,23 @@
   var SkipMainBreakException = {}
   var timestampOffset = 30 * 1000//30 seconds
   var zones = [
-    {'zone':'A','radius':12400,'multiplier':.01},/* 1% */
-    {'zone':'B','radius':8280,'multiplier':.02},/* 2% */
-    {'zone':'C','radius':4140,'multiplier':.03},/* 3% */
-    {'zone':'D','radius':1030,'multiplier':.04},/* 4% */
-    {'zone':'E','radius':130,'multiplier':.05}/* 5% */
+    {'zone':'A','radius':12400,'multiplier':0.01},/* 1% */
+    {'zone':'B','radius':8280,'multiplier':0.02},/* 2% */
+    {'zone':'C','radius':4140,'multiplier':0.03},/* 3% */
+    {'zone':'D','radius':1030,'multiplier':0.04},/* 4% */
+    {'zone':'E','radius':130,'multiplier':0.05}/* 5% */
   ]
   //no point in having periods unless there are exponential score point rewards
-  var periods = [
-    'min1':{'coverage': 1.0, 'reward': .0025, 'boost': 0.5},// 0.5 equivalent 20 minutes
-    'min7':{'coverage': .95, 'reward': .005, 'boost': 0.75},// 0.14 equivalent 20 minutes
-    'min20':{'coverage': .90, 'reward': .01, 'boost': 1},// 1 equivalent 20 minutes
-    'hr2':{'coverage': .85, 'reward': .06, 'boost': 1.25},// 6 equivalent 20 minutes
-    'hr8':{'coverage': .80, 'reward': .24, 'boost': 1.5},// 24 equivalent 20 minutes
-    'hr16':{'coverage': .75, 'reward': .48, 'boost': 1.75},//48 equivalent 20 minutes
-    'hr24':{'coverage': .70, 'reward': .72, 'boost': 2}//72 equivalent 20 minutes
-  ]
-  var period = periods['hr24']
+  var periods = {
+    'min1':{'coverage': 1.0, 'reward': 0.0025, 'boost': 0.5},// 0.5 equivalent 20 minutes
+    'min7':{'coverage': 0.95, 'reward': 0.005, 'boost': 0.75},// 0.14 equivalent 20 minutes
+    'min20':{'coverage': 0.90, 'reward': 0.01, 'boost': 1},// 1 equivalent 20 minutes
+    'hr2':{'coverage': 0.85, 'reward': 0.06, 'boost': 1.25},// 6 equivalent 20 minutes
+    'hr8':{'coverage': 0.80, 'reward': 0.24, 'boost': 1.5},// 24 equivalent 20 minutes
+    'hr16':{'coverage': 0.75, 'reward': 0.48, 'boost': 1.75},//48 equivalent 20 minutes
+    'hr24':{'coverage': 0.70, 'reward': 0.72, 'boost': 2}//72 equivalent 20 minutes
+  }
+  var period = periods.hr24
 
   var now = new Date()
   var last24Hours = date.addHours(now,-24)
@@ -86,17 +86,21 @@ exports.handler = async (event)=> {
         imei.overlapping.push({'imei':overlap.imei})
     })
     
-    var ravelties = []
+    var ravelties = new Map()
     await trackRaveltie(imeisMap, async (raveltie)=> {
 
-      period.coverage
+      var [zoneValue, imei, fusedStamp, distanceTo] = raveltie
+      console.log( raveltie)
+      if(ravelties.has(imei)) {
+        var fuse = ravelties.get(imei)
+        fuse.ravelties.push(fusedStamp)
+        fuse.zone = zoneValue 
+      } else {
+        ravelties.set(imei,{'ravelties':[ fusedStamp ], 'zone':zoneValue})//@TODO fix error zone needs array
+      }
+    })
 
-      var formula = ( % Overlapping Points ) * ( % Zone Multiplier ) * ( % Period Reward ) * ( % Period Boost )
-
-      // var [zone,stamp] = synthZone  
-      // // score points
-      // mainImei.score +=  zoneValue.points
-      // overlappingImei.score +=  zoneValue.points
+    await fuseStamp(ravelties, async()=> {
 
     })
 
@@ -194,7 +198,7 @@ let trackRaveltie =async (imeisMap,done)=> {
                 trackingIndex = index
                 var trackingLocation = secArray[trackingIndex]
 
-                await fuseZone(location, trackingLocation,
+                await fuseZone(mainImei.imei,location, trackingLocation,
                   async (synthZone)=> {
                     await done(synthZone)
 
@@ -216,10 +220,63 @@ let trackRaveltie =async (imeisMap,done)=> {
 
     })//end main Imei Overlapping
 
-    await updateRaveltieScore(imeisMap,mainImei,mainImeiKey)
 
   })//end imeisMap
 
+}
+let fuseStamp =async (ravelties,done)=> {
+
+  console.log("fuse stamp"+JSON.stringify(ravelties))
+  
+  await ravelties.forEach(async (raveltieValue, raveltieKey) => {
+
+    console.log(raveltieValue.ravelties.size)
+
+
+    // await updateRaveltieScore(imeisMap,mainImei,mainImeiKey)
+  })
+
+}
+let fuseZone =async (imei, mainLocation,fusedLocation,done)=> {
+  var ZoneBreakException = {}
+  try {
+    // for now use zones but it's very expensive, so do a pre-Zone check
+    await zones.forEach(async (zoneValue,zI,zA)=> {
+        //add attribute of location accuracy and sutract it from distance calculation
+        //geolocation
+        var distanceTo = geolocation
+            .headingDistanceTo(mainLocation, fusedLocation)
+            .distance
+
+        // console.log("distance: "+distanceTo+
+        //     " accuracy1: "+mainLocation.accuracy+
+        //     " accuracy2: "+fusedLocation.accuracy+
+        //     " radius: "+zoneValue.radius)
+
+        if((distanceTo - 
+            mainLocation.accuracy - 
+                fusedLocation.accuracy) < zoneValue.radius) {
+
+
+          var synthesis = [zoneValue, imei, fusedLocation.timestamp, distanceTo]
+          await done(synthesis)
+
+
+        } else {
+          //no points
+          throw ZoneBreakException
+          //when there aren't any matching big zones,
+          //least will there be matching smaller zones
+        }
+    })//end zones
+    throw ZoneBreakException
+  }catch(zonesBreakException) {
+    if(zonesBreakException instanceof Error) {
+        throw zonesBreakException
+    } else {
+        throw SkipMainBreakException
+    }
+  }
 }
 let updateRaveltieScore =async (imeisMap,mainImei,mainImeiKey)=> {
   //Update score and delete processed locations?
@@ -282,46 +339,6 @@ let rewindOrForward =async (timestamp, secTimestamp,secArray,secIndex, done)=> {
     throw new Error("Serious Error")
   }
 
-}
-let fuseZone =async (mainLocation,fusedLocation,done)=> {
-  var ZoneBreakException = {}
-  try {
-    // for now use zones but it's very expensive, so do a pre-Zone check
-    await zones.forEach(async (zoneValue,zI,zA)=> {
-        //add attribute of location accuracy and sutract it from distance calculation
-        //geolocation
-        var distanceTo = geolocation
-            .headingDistanceTo(mainLocation, fusedLocation)
-            .distance
-
-        // console.log("distance: "+distanceTo+
-        //     " accuracy1: "+mainLocation.accuracy+
-        //     " accuracy2: "+fusedLocation.accuracy+
-        //     " radius: "+zoneValue.radius)
-
-        if((distanceTo - 
-            mainLocation.accuracy - 
-                fusedLocation.accuracy) < zoneValue.radius) {
-
-          var synthesis = [zoneValue,fusedLocation.timestamp,distanceTo]
-          await done(synthesis)
-
-
-        } else {
-          //no points
-          throw ZoneBreakException
-          //when there aren't any matching big zones,
-          //least will there be matching smaller zones
-        }
-    })//end zones
-    throw ZoneBreakException
-  }catch(zonesBreakException) {
-    if(zonesBreakException instanceof Error) {
-        throw zonesBreakException
-    } else {
-        throw SkipMainBreakException
-    }
-  }
 }
 
 let rewind =async (secArray, secIndex, timestamp)=> {
