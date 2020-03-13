@@ -16,6 +16,19 @@
 * Time Period that users stuck along for (20 sec) in zone A,B,C,D,E
 **/
 
+ /*
+  * Most Value to Least Value
+  * Formula :  { % Overlapping Points } * { % Zone Multiplier } * { % Period Reward } * { % Period Boost }
+  * 
+  * Example E24hr: { % 100 (overlap points)} * { % 5 (zone E )} * { % 72 (24hr prd reward)} * { % 2 boost (24 hr) } == 7.2
+  * Example E1min: { % 100 (overlap points)} * { % 5 (zone E )} * { % 0.25 (1 min prd reward)} * { % 0.5 boost (1 min) } == 0.00625
+  * Example C24hr: { % 100 (overlap points)} * { % 3 (zone C )} * { % 72 (24hr prd reward)} * { % 2 boost (24 hr) } == 4.32
+  * Example C1min: { % 100 (overlap points)} * { % 3 (zone C )} * { % 0.25 (1 min prd reward)} * { % 0.5 boost (1 min) } == 0.00375
+  * Example A24hr: { % 100 (overlap points)} * { % 1 (zone A )} * { % 72 (24hr prd reward)} * { % 2 boost (24 hr) } == 1.44
+  * Example A1min: { % 100 (overlap points)} * { % 1 (zone A )} * { % 0.25 (1 min prd reward)} * { % 0.5 boost (1 min) } == 0.00125
+  * 
+  */
+
 {
   var doc = require('dynamodb-doc')
   var date = require('date-and-time')
@@ -36,24 +49,26 @@
   var SkipMainBreakException = {}
   var timestampOffset = 30 * 1000//30 seconds
   var zones = [
-    {'zone':'A','radius':12400,'points':.01},/* 1% */
-    {'zone':'B','radius':8280,'points':.02},/* 2% */
-    {'zone':'C','radius':4140,'points':.03},/* 3% */
-    {'zone':'D','radius':1030,'points':.04},/* 4% */
-    {'zone':'E','radius':130,'points':.05}/* 5% */
+    {'zone':'A','radius':12400,'multiplier':.01},/* 1% */
+    {'zone':'B','radius':8280,'multiplier':.02},/* 2% */
+    {'zone':'C','radius':4140,'multiplier':.03},/* 3% */
+    {'zone':'D','radius':1030,'multiplier':.04},/* 4% */
+    {'zone':'E','radius':130,'multiplier':.05}/* 5% */
   ]
+  //no point in having periods unless there are exponential score point rewards
   var periods = [
-    {'period':.1, 'coverage': 1.0, 'reward': 0.25},// 0.5 equivalent 20 minutes
-    {'period':.7, 'coverage': .95, 'reward': 0.50},// 0.14 equivalent 20 minutes
-    {'period':.20, 'coverage': .90, 'reward': 1.00},// 1 equivalent 20 minutes
-    {'period':2, 'coverage': .85, 'reward': 6.00},// 6 equivalent 20 minutes
-    {'period':8, 'coverage': .80, 'reward': 24.00},// 24 equivalent 20 minutes
-    {'period':16, 'coverage': .75, 'reward': 48.00},//48 equivalent 20 minutes
-    {'period':24, 'coverage': .70, 'reward': 72.00},//72 equivalent 20 minutes
+    'min1':{'coverage': 1.0, 'reward': .0025, 'boost': 0.5},// 0.5 equivalent 20 minutes
+    'min7':{'coverage': .95, 'reward': .005, 'boost': 0.75},// 0.14 equivalent 20 minutes
+    'min20':{'coverage': .90, 'reward': .01, 'boost': 1},// 1 equivalent 20 minutes
+    'hr2':{'coverage': .85, 'reward': .06, 'boost': 1.25},// 6 equivalent 20 minutes
+    'hr8':{'coverage': .80, 'reward': .24, 'boost': 1.5},// 24 equivalent 20 minutes
+    'hr16':{'coverage': .75, 'reward': .48, 'boost': 1.75},//48 equivalent 20 minutes
+    'hr24':{'coverage': .70, 'reward': .72, 'boost': 2}//72 equivalent 20 minutes
   ]
+  var period = periods['hr24']
+
   var now = new Date()
-  var last24Hours = date.addDays(now,-1)
-  
+  var last24Hours = date.addHours(now,-24)
 }
 
 
@@ -73,13 +88,18 @@ exports.handler = async (event)=> {
     
     var ravelties = []
     await trackRaveltie(imeisMap, async (raveltie)=> {
+
+      period.coverage
+
+      var formula = ( % Overlapping Points ) * ( % Zone Multiplier ) * ( % Period Reward ) * ( % Period Boost )
+
       // var [zone,stamp] = synthZone  
       // // score points
       // mainImei.score +=  zoneValue.points
       // overlappingImei.score +=  zoneValue.points
 
     })
-    
+
 
   } catch(promisifyError) {
     console.error(promisifyError)
@@ -176,7 +196,6 @@ let trackRaveltie =async (imeisMap,done)=> {
 
                 await fuseZone(location, trackingLocation,
                   async (synthZone)=> {
-                    console.log(synthZone[2])
                     await done(synthZone)
 
                   })//end fuseZone
