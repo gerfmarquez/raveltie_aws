@@ -36,18 +36,20 @@
   var SkipMainBreakException = {}
   var timestampOffset = 30 * 1000//30 seconds
   var zones = [
-    {'zone':'A','radius':14484,'points':.01},/* 1% */
-    {'zone':'B','radius':9656,'points':.02},/* 2% */
-    {'zone':'C','radius':4828,'points':.03},/* 3% */
-    {'zone':'D','radius':2414,'points':.04},/* 4% */
-    {'zone':'E','radius':1255,'points':.05} /* 5% */
+    {'zone':'A','radius':12400,'points':.01},/* 1% */
+    {'zone':'B','radius':8280,'points':.02},/* 2% */
+    {'zone':'C','radius':4140,'points':.03},/* 3% */
+    {'zone':'D','radius':1030,'points':.04},/* 4% */
+    {'zone':'E','radius':130,'points':.05}/* 5% */
   ]
   var periods = [
-    {'period':.15, 'coverage': .65, 'reward': 1.00},
-    {'period':.48, 'coverage': .65, 'reward': 1.00},
-    {'period':2.5, 'coverage': .65, 'reward': 1.00},
-    {'period':24, 'coverage': .65, 'reward': 1.00},
-    {'period':8, 'coverage': .65, 'reward': 1.00},
+    {'period':.1, 'coverage': 1.0, 'reward': 0.25},// 0.5 equivalent 20 minutes
+    {'period':.7, 'coverage': .95, 'reward': 0.50},// 0.14 equivalent 20 minutes
+    {'period':.20, 'coverage': .90, 'reward': 1.00},// 1 equivalent 20 minutes
+    {'period':2, 'coverage': .85, 'reward': 6.00},// 6 equivalent 20 minutes
+    {'period':8, 'coverage': .80, 'reward': 24.00},// 24 equivalent 20 minutes
+    {'period':16, 'coverage': .75, 'reward': 48.00},//48 equivalent 20 minutes
+    {'period':24, 'coverage': .70, 'reward': 72.00},//72 equivalent 20 minutes
   ]
   var now = new Date()
   var last24Hours = date.addDays(now,-1)
@@ -69,7 +71,15 @@ exports.handler = async (event)=> {
         imei.overlapping.push({'imei':overlap.imei})
     })
     
-    await processRaveltieData(imeisMap)
+    var ravelties = []
+    await trackRaveltie(imeisMap, async (raveltie)=> {
+      // var [zone,stamp] = synthZone  
+      // // score points
+      // mainImei.score +=  zoneValue.points
+      // overlappingImei.score +=  zoneValue.points
+
+    })
+    
 
   } catch(promisifyError) {
     console.error(promisifyError)
@@ -131,7 +141,7 @@ let detectOverlaps =async (imeisMap,done)=> {
   })
 
 }
-let processRaveltieData =async (imeisMap)=> {
+let trackRaveltie =async (imeisMap,done)=> {
 
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
     
@@ -145,26 +155,33 @@ let processRaveltieData =async (imeisMap)=> {
 
       var trackingIndex = 0
 
-      await mainImei.locations.forEach(async (mainLocation,index,array)=> {
-
-        var matchingSecondaryLocation
+      await mainImei.locations.forEach(async (location,index,array)=> {
 
         try {
-          await overlappingImei.locations.forEach(async (secondaryLocation, secIndex, secArray)=> {
+          await overlappingImei.locations.forEach(async (overlap, secIndex, secArray)=> {
             if(secIndex <= trackingIndex) {
                 return//@todo efficiency
             }
 
-            var [index, skipMainBreakException] = 
-              await rewindOrForward(
-                mainLocation.timestamp, secondaryLocation.timestamp,  secIndex, secArray)
+            // var [index, skipMainBreakException] = 
+            await rewindOrForward(location.timestamp, overlap.timestamp, secArray, secIndex, 
+              async (track)=> { 
+              
+                var [index,skip] = track
 
-            if(skipMainBreakException) throw SkipMainBreakException
+                if(skip) throw SkipMainBreakException
 
-            trackingIndex = index
-            var trackingLocation = secArray[trackingIndex]
+                trackingIndex = index
+                var trackingLocation = secArray[trackingIndex]
 
-            await fuseScore(mainLocation,trackingLocation,mainImei,overlappingImei)
+                await fuseZone(location, trackingLocation,
+                  async (synthZone)=> {
+                    console.log(synthZone[2])
+                    await done(synthZone)
+
+                  })//end fuseZone
+
+              })//end rewindOrForward
 
           })//end overlapping Imei Locations)
 
@@ -229,23 +246,25 @@ let updateRaveltieScore =async (imeisMap,mainImei,mainImeiKey)=> {
   mainImei.overlapping = []
   mainImei.locations = []//free up some memory?
 }
-let rewindOrForward =async (timestamp,secondaryTimestamp,secIndex,secArray)=> {
+let rewindOrForward =async (timestamp, secTimestamp,secArray,secIndex, done)=> {
 
   //find closest matching timestamp for main and secondary locations
-  if(secondaryTimestamp >= timestamp) {
+  if(secTimestamp >= timestamp) {
     
-    return await rewind(secIndex,secArray,timestamp)
+    var track = await rewind(secArray, secIndex, timestamp)
+    await done(track)
 
-  } else if(secondaryTimestamp <= timestamp) {
+  } else if(secTimestamp <= timestamp) {
     
-    return await forward(secIndex,secArray,timestamp)
+    var track = await forward(secArray, secIndex, timestamp)
+    await done(track)
 
   } else {
     throw new Error("Serious Error")
   }
 
 }
-let fuseScore =async (mainLocation,matchingSecondaryLocation,mainImei,overlappingImei)=> {
+let fuseZone =async (mainLocation,fusedLocation,done)=> {
   var ZoneBreakException = {}
   try {
     // for now use zones but it's very expensive, so do a pre-Zone check
@@ -253,26 +272,27 @@ let fuseScore =async (mainLocation,matchingSecondaryLocation,mainImei,overlappin
         //add attribute of location accuracy and sutract it from distance calculation
         //geolocation
         var distanceTo = geolocation
-            .headingDistanceTo(mainLocation, matchingSecondaryLocation)
+            .headingDistanceTo(mainLocation, fusedLocation)
             .distance
 
         // console.log("distance: "+distanceTo+
         //     " accuracy1: "+mainLocation.accuracy+
-        //     " accuracy2: "+matchingSecondaryLocation.accuracy+
+        //     " accuracy2: "+fusedLocation.accuracy+
         //     " radius: "+zoneValue.radius)
 
         if((distanceTo - 
             mainLocation.accuracy - 
-                matchingSecondaryLocation.accuracy) < zoneValue.radius) {
-            //score points
-            mainImei.score +=  zoneValue.points
-            overlappingImei.score +=  zoneValue.points
+                fusedLocation.accuracy) < zoneValue.radius) {
+
+          var synthesis = [zoneValue,fusedLocation.timestamp,distanceTo]
+          await done(synthesis)
+
 
         } else {
-            //no points
-            throw ZoneBreakException
-            //when there aren't any matching big zones,
-            //least will there be matching smaller zones
+          //no points
+          throw ZoneBreakException
+          //when there aren't any matching big zones,
+          //least will there be matching smaller zones
         }
     })//end zones
     throw ZoneBreakException
@@ -285,7 +305,7 @@ let fuseScore =async (mainLocation,matchingSecondaryLocation,mainImei,overlappin
   }
 }
 
-let rewind =async (secIndex,secArray,timestamp)=> {
+let rewind =async (secArray, secIndex, timestamp)=> {
   // console.log("Greater")
   var rewindIndex = secIndex
   var rewindTimestamp
@@ -327,7 +347,7 @@ let rewind =async (secIndex,secArray,timestamp)=> {
   } while (rewindTimestamp > (timestamp - timestampOffset))
 }
 
-let forward =async (secIndex,secArray,timestamp)=> {
+let forward =async (secArray,secIndex,timestamp)=> {
   // console.log("Lesser")
   var forwardIndex = secIndex
   var forwardTimestamp
