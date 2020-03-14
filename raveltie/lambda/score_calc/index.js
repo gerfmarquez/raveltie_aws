@@ -36,6 +36,7 @@
   var stackimpact = require('stackimpact')
   var dynamo = new doc.DynamoDB()
   var promisify = require('util').promisify
+  var inspect = require('util').inspect
   var agent = stackimpact.start({
     agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
     appName: "MyNodejsApp",
@@ -86,23 +87,27 @@ exports.handler = async (event)=> {
         imei.overlapping.push({'imei':overlap.imei})
     })
     
-    var ravelties = new Map()
+    var imeiFuses = new Map()
+    var overlapFuses = new Map()
     await trackRaveltie(imeisMap, async (raveltie)=> {
+      //@TODO currently this raveltie callback is executed per overlapping location.
+      //@TODO should this be executed only after all overlapping callbacks are processed? but per overlapping imei round?
+      var [zoneValue, imei, overlapImei, fusedStamp, distanceTo, overlapScore] = raveltie
+      
+      var element = await putMapItem(imeiFuses, imei, 
+      {'overlapScore': overlapScore, 'overlap': 
+      await putMapItem(overlapFuses, overlapImei, { 'stamp':fusedStamp, 'zone': zoneValue })
+      })
+      
+      await fuseStamp(imeiFuses, overlapFuses, async()=> {
 
-      var [zoneValue, imei, fusedStamp, distanceTo] = raveltie
-      console.log( raveltie)
-      if(ravelties.has(imei)) {
-        var fuse = ravelties.get(imei)
-        fuse.ravelties.push(fusedStamp)
-        fuse.zone = zoneValue 
-      } else {
-        ravelties.set(imei,{'ravelties':[ fusedStamp ], 'zone':zoneValue})//@TODO fix error zone needs array
-      }
+      })
+      //@TODO reset overlapFuses after loop?
     })
+    // console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
+    // console.log(inspect(overlapFuses,{showHidden: false, depth: null}))
+    
 
-    await fuseStamp(ravelties, async()=> {
-
-    })
 
 
   } catch(promisifyError) {
@@ -193,16 +198,17 @@ let trackRaveltie =async (imeisMap,done)=> {
               
                 var [index,skip] = track
 
-                if(skip) throw SkipMainBreakException
+                if(skip) 
+                  throw SkipMainBreakException
 
                 trackingIndex = index
                 var trackingLocation = secArray[trackingIndex]
 
-                await fuseZone(mainImei.imei,location, trackingLocation,
-                  async (synthZone)=> {
-                    await done(synthZone)
-
-                  })//end fuseZone
+                var skipMainBreakException = 
+                await fuseZone(mainImei.imei, overlappingImei.imei, overlappingImei.score, 
+                location, trackingLocation, done)
+                
+                if(skipMainBreakException) throw SkipMainBreakException
 
               })//end rewindOrForward
 
@@ -212,7 +218,7 @@ let trackRaveltie =async (imeisMap,done)=> {
           if(skipMainBreakException instanceof Error) {
               throw skipMainBreakException
           } else {
-
+            
           }
         }
             
@@ -224,20 +230,25 @@ let trackRaveltie =async (imeisMap,done)=> {
   })//end imeisMap
 
 }
-let fuseStamp =async (ravelties,done)=> {
+let fuseStamp =async (imeiFuses, overlapFuses, done)=> {
 
-  console.log("fuse stamp"+JSON.stringify(ravelties))
+  var collectHalfMinutes = {'A':0,'B':0,'C':0,'D':0,'E':0}
   
-  await ravelties.forEach(async (raveltieValue, raveltieKey) => {
+  await imeiFuses.forEach(async (fuses, imei) => {
 
-    console.log(raveltieValue.ravelties.size)
+    // switch(fuses.)
 
+    // console.log(inspect(fuses,{showHidden: false, depth: null}))
+
+    // console.log(imei)
+    // console.log(fuses)
 
     // await updateRaveltieScore(imeisMap,mainImei,mainImeiKey)
   })
+  // var formula = (overlapScore ) * ( % Zone Multiplier ) * ( % Period Reward ) * ( % Period Boost )
 
 }
-let fuseZone =async (imei, mainLocation,fusedLocation,done)=> {
+let fuseZone =async (imei, overlapImei, overlapScore, mainLocation,fusedLocation,done)=> {
   var ZoneBreakException = {}
   try {
     // for now use zones but it's very expensive, so do a pre-Zone check
@@ -257,24 +268,26 @@ let fuseZone =async (imei, mainLocation,fusedLocation,done)=> {
             mainLocation.accuracy - 
                 fusedLocation.accuracy) < zoneValue.radius) {
 
-
-          var synthesis = [zoneValue, imei, fusedLocation.timestamp, distanceTo]
+          var synthesis = [zoneValue, imei, overlapImei, fusedLocation.timestamp, distanceTo,overlapScore]
           await done(synthesis)
-
 
         } else {
           //no points
+          
           throw ZoneBreakException
+          
           //when there aren't any matching big zones,
           //least will there be matching smaller zones
         }
     })//end zones
+    // console.log("ZoneBreakException")
     throw ZoneBreakException
   }catch(zonesBreakException) {
     if(zonesBreakException instanceof Error) {
         throw zonesBreakException
     } else {
-        throw SkipMainBreakException
+        return SkipMainBreakException
+        
     }
   }
 }
@@ -338,7 +351,6 @@ let rewindOrForward =async (timestamp, secTimestamp,secArray,secIndex, done)=> {
   } else {
     throw new Error("Serious Error")
   }
-
 }
 
 let rewind =async (secArray, secIndex, timestamp)=> {
@@ -382,7 +394,7 @@ let rewind =async (secArray, secIndex, timestamp)=> {
     }
   } while (rewindTimestamp > (timestamp - timestampOffset))
 }
-
+// Throws SkipMainBreakException
 let forward =async (secArray,secIndex,timestamp)=> {
   // console.log("Lesser")
   var forwardIndex = secIndex
@@ -480,6 +492,17 @@ Array.prototype.forEach =async function(done) {
   for (let index = 0; index < this.length; index++) {
     await done(this[index], index, this)
   }
+}
+let putMapItem =async (map,key,object)=> {
+  var element 
+  if(map.has(key)) {
+    element = map.get(key)
+    element.push(object)
+  } else {
+    map.set(key,[object])
+    element = map.get(key)
+  }
+  return element
 }
 
 /*
