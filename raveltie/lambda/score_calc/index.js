@@ -89,21 +89,23 @@ exports.handler = async (event)=> {
     
     var imeiFuses = new Map()
     var overlapFuses = new Map()
-    await trackRaveltie(imeisMap, async (raveltie)=> {
+
+    await trackRaveltie(imeisMap, async (fused,overlappingImei,imei)=> {
       //@TODO currently this raveltie callback is executed per overlapping location.
       //@TODO should this be executed only after all overlapping callbacks are processed? but per overlapping imei round?
-      var [zoneValue, imei, overlapImei, fusedStamp, distanceTo, overlapScore] = raveltie
-      
       var element = await putMapItem(imeiFuses, imei, 
       {'overlapScore': overlapScore, 'overlap': 
       await putMapItem(overlapFuses, overlapImei, { 'stamp':fusedStamp, 'zone': zoneValue })
       })
       
-      await fuseStamp(imeiFuses, overlapFuses, async()=> {
+      console.log(inspect(fused,{showHidden: false, depth: null}))
 
-      })
       //@TODO reset overlapFuses after loop?
     })
+
+    // await fuseStamp(imeiFuses, overlapFuses, async()=> {
+
+    // })
     // console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
     // console.log(inspect(overlapFuses,{showHidden: false, depth: null}))
     
@@ -183,6 +185,7 @@ let trackRaveltie =async (imeisMap,done)=> {
 
 
       var trackingIndex = 0
+      var fusedZones = []
 
       await mainImei.locations.forEach(async (location,index,array)=> {
 
@@ -204,9 +207,8 @@ let trackRaveltie =async (imeisMap,done)=> {
                 trackingIndex = index
                 var trackingLocation = secArray[trackingIndex]
 
-                var skipMainBreakException = 
-                await fuseZone(mainImei.imei, overlappingImei.imei, overlappingImei.score, 
-                location, trackingLocation, done)
+                var {skipMainBreakException,fusedZones} = await fuseZone(location, trackingLocation)
+                fusedZones.push(fusedZones)
                 
                 if(skipMainBreakException) throw SkipMainBreakException
 
@@ -224,32 +226,17 @@ let trackRaveltie =async (imeisMap,done)=> {
             
       })//end main Imei Locations
 
+      done(fusedZones, overlappingImei.imei, mainImei.imei)
+
     })//end main Imei Overlapping
 
 
   })//end imeisMap
 
 }
-let fuseStamp =async (imeiFuses, overlapFuses, done)=> {
-
-  var collectHalfMinutes = {'A':0,'B':0,'C':0,'D':0,'E':0}
-  
-  await imeiFuses.forEach(async (fuses, imei) => {
-
-    // switch(fuses.)
-
-    // console.log(inspect(fuses,{showHidden: false, depth: null}))
-
-    // console.log(imei)
-    // console.log(fuses)
-
-    // await updateRaveltieScore(imeisMap,mainImei,mainImeiKey)
-  })
-  // var formula = (overlapScore ) * ( % Zone Multiplier ) * ( % Period Reward ) * ( % Period Boost )
-
-}
-let fuseZone =async (imei, overlapImei, overlapScore, mainLocation,fusedLocation,done)=> {
+let fuseZone =async (mainLocation,fusedLocation)=> {
   var ZoneBreakException = {}
+  var fusedZones = []
   try {
     // for now use zones but it's very expensive, so do a pre-Zone check
     await zones.forEach(async (zoneValue,zI,zA)=> {
@@ -268,28 +255,44 @@ let fuseZone =async (imei, overlapImei, overlapScore, mainLocation,fusedLocation
             mainLocation.accuracy - 
                 fusedLocation.accuracy) < zoneValue.radius) {
 
-          var synthesis = [zoneValue, imei, overlapImei, fusedLocation.timestamp, distanceTo,overlapScore]
-          await done(synthesis)
-
+          // fusedZones.push({'zone':zoneValue,'timestamp':fusedLocation.timestamp})
+          
         } else {
           //no points
-          
           throw ZoneBreakException
-          
           //when there aren't any matching big zones,
           //least will there be matching smaller zones
         }
     })//end zones
-    // console.log("ZoneBreakException")
-    throw ZoneBreakException
+
+    return {SkipMainBreakException, fusedZones}
   }catch(zonesBreakException) {
     if(zonesBreakException instanceof Error) {
         throw zonesBreakException
     } else {
-        return SkipMainBreakException
+        return {SkipMainBreakException, fusedZones}
         
     }
   }
+}
+//output is score
+let fuseStamp =async (imeiFuses, overlapFuses, done)=> {
+
+  var collectHalfMinutes = {'A':0,'B':0,'C':0,'D':0,'E':0}
+  
+  await imeiFuses.forEach(async (fuses, imei) => {
+
+    // switch(fuses.)
+
+    // console.log(inspect(fuses,{showHidden: false, depth: null}))
+
+    // console.log(imei)
+    // console.log(fuses)
+
+    // await updateRaveltieScore(imeisMap,mainImei,mainImeiKey)
+  })
+  // var formula = (overlapScore ) * ( % Zone Multiplier ) * ( % Period Reward ) * ( % Period Boost )
+
 }
 let updateRaveltieScore =async (imeisMap,mainImei,mainImeiKey)=> {
   //Update score and delete processed locations?
