@@ -94,8 +94,8 @@ exports.handler = async (event)=> {
       //@TODO currently this raveltie callback is executed per overlapping location.
       //@TODO should this be executed only after all overlapping callbacks are processed? but per overlapping imei round?
       var element = await putMapItem(
-        imeiFuses, imei.imei, {'overlap': 
-      await putMapItem(
+        imeiFuses, imei.imei, {'score':imei.score,'overlap': 
+      await putMapArray(
         overlapFuses, overlappingImei.imei, { 'stamps':fused,'overlapScore':overlappingImei.score})
       })
       
@@ -103,16 +103,14 @@ exports.handler = async (event)=> {
       //@TODO reset overlapFuses after loop?
     })
     console.log("work...")
-    console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
+    // console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
 
     await fuseStamp(imeiFuses, overlapFuses, async()=> {
-      
+
     })
     // console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
     // console.log(inspect(overlapFuses,{showHidden: false, depth: null}))
     
-
-
 
   } catch(promisifyError) {
     console.error(promisifyError)
@@ -291,21 +289,51 @@ let fuseZone =async (mainLocation,fusedLocation)=> {
   }
 }
 //output is score
-let fuseStamp =async (imeiFuses, overlapFuses, done)=> {
+let fuseStamp =async (fuses, overlapFuses, done)=> {
 
   var collectHalfMinutes = {'A':0,'B':0,'C':0,'D':0,'E':0}
+
+  var zonesA = []
+  var zonesB = []
+  var zonesC = []
+  var zonesD = []
+  var zonesE = []
   
-  await imeiFuses.forEach(async (fuses, imei) => {
-
-    // switch(fuses.)
-
-    // console.log(inspect(fuses,{showHidden: false, depth: null}))
-
-    // console.log(imei)
-    // console.log(fuses)
-
+  await fuses.forEach(async (fuse, imei) => { 
+      await fuse.overlap.forEach(async (overlap, array, index) => {
+        await overlap.stamps.forEach(async (stamp, array, index) => {
+          // console.log(stamp)
+          await stamp.forEach(async (zone, array, index) => {
+            var z = zone.zone.zone
+            switch(z) {
+              case 'A':
+                zonesA.push(z.timestamp)
+                break;
+              case 'B':
+                zonesB.push(z.timestamp)
+                break;
+              case 'C':
+                zonesC.push(z.timestamp)
+                break;
+              case 'D':
+                zonesD.push(z.timestamp)
+                break;
+              case 'E':
+                zonesE.push(z.timestamp)
+                break;
+            }
+          })
+        })
+      })
     // await updateRaveltieScore(imeisMap,mainImei,mainImeiKey)
   })
+  console.log("zones A Length: "+zonesA.length)
+  console.log("zones B Length: "+zonesB.length)
+  console.log("zones C Length: "+zonesC.length)
+  console.log("zones D Length: "+zonesD.length)
+  console.log("zones E Length: "+zonesE.length)
+  
+
   // var formula = (overlapScore ) * ( % Zone Multiplier ) * ( % Period Reward ) * ( % Period Boost )
 
 }
@@ -464,7 +492,7 @@ let scanning =async (scan,done)=> {
   var scanResults = data.Items
 
   await scanResults.forEach(async (value, index, array)=> {
-    done(value)
+    await done(value)
   })
   if(typeof data.LastEvaluatedKey != "undefined") {
     scan.ExclusiveStartKey = data.LastEvaluatedKey
@@ -479,6 +507,9 @@ let sortTimestamps =async (imeisMap)=> {
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
     if(typeof mainImei.locations != "undefined") {
       mainImei.locations.sort((a,b)=> {return a.timestamp - b.timestamp})
+    }
+    if(mainImei.score === 0) {
+      mainImei.score = 100//Default Score
     }
   })
 }
@@ -514,10 +545,22 @@ Array.prototype.forEach =async function(done) {
 let putMapItem =async (map,key,object)=> {
   var element 
   if(map.has(key)) {
-    element = map.get(key)
-    element.push(object)
+    // element = map.get(key)
+    // element.push(object)
+    throw Error("shouldn't happen")
   } else {
-    map.set(key,[object])
+    map.set(key,object)
+    element = map.get(key)
+  }
+  return element
+}
+let putMapArray =async (map,key,array)=> {
+  var element 
+  if(map.has(key)) {
+    element = map.get(key)
+    element.push(array)
+  } else {
+    map.set(key,[array])
     element = map.get(key)
   }
   return element
