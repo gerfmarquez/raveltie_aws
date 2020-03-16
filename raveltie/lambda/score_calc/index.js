@@ -289,7 +289,7 @@ let fuseZone =async (mainLocation,fusedLocation)=> {
   }
 }
 //output is score
-let fuseStamp =async (fuses, overlapFuses, done)=> {
+let fuseStamp =async (fuses, done)=> {
 
   var collectHalfMinutes = {'A':0,'B':0,'C':0,'D':0,'E':0}
 
@@ -300,9 +300,11 @@ let fuseStamp =async (fuses, overlapFuses, done)=> {
   var zonesE = []
   
   await fuses.forEach(async (fuse, imei) => { 
+
       await fuse.overlap.forEach(async (overlap, array, index) => {
+
         await overlap.stamps.forEach(async (stamp, array, index) => {
-          // console.log(stamp)
+
           await stamp.forEach(async (zone, array, index) => {
             var z = zone.zone.zone
             switch(z) {
@@ -322,17 +324,28 @@ let fuseStamp =async (fuses, overlapFuses, done)=> {
                 zonesE.push(z.timestamp)
                 break;
             }
-          })
-        })
-      })
-    // await updateRaveltieScore(imeisMap,mainImei,mainImeiKey)
-  })
-  console.log("zones A Length: "+zonesA.length)
-  console.log("zones B Length: "+zonesB.length)
-  console.log("zones C Length: "+zonesC.length)
-  console.log("zones D Length: "+zonesD.length)
-  console.log("zones E Length: "+zonesE.length)
-  
+          })// end zones
+
+        })// end stamps
+
+        var minuteGapsZoneA = zonesA.length / 2;
+        var minuteGapsZoneB = zonesB.length / 2;
+        var minuteGapsZoneC = zonesC.length / 2;
+        var minuteGapsZoneD = zonesD.length / 2;
+        var minuteGapsZoneE = zonesE.length / 2;
+        var minuteGapsZoneF = zonesF.length / 2;
+
+        console.log("zones A Length: "+zonesA.length)
+        console.log("zones B Length: "+zonesB.length)
+        console.log("zones C Length: "+zonesC.length)
+        console.log("zones D Length: "+zonesD.length)
+        console.log("zones E Length: "+zonesE.length)
+
+      })//end overlaps
+    
+  })//end fuses
+
+  // await updateRaveltieScore(imeisMap,mainImei,mainImeiKey)
 
   // var formula = (overlapScore ) * ( % Zone Multiplier ) * ( % Period Reward ) * ( % Period Boost )
 
