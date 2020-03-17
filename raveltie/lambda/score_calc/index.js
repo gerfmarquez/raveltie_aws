@@ -129,7 +129,7 @@ let pullRaveltieData =async (done)=> {
   //get all locations/scores of all imeis for last 24 hours
   var scan = {
     TableName : 'raveltie2',
-    Limit : 100//,
+    Limit : 100,
     FilterExpression: '#ts > :greatherthan',
     ExpressionAttributeValues: {
       ':greatherthan': last24Hours.getTime().toString()
