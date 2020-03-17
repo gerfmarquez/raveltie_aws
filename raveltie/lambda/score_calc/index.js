@@ -66,15 +66,17 @@
     'hr16':{'coverage': 0.75, 'reward': 0.48, 'boost': 1.75, 'min30sec':1920, 'minutes':0, 'hours':16},//48 equivalent 20 minutes
     'hr24':{'coverage': 0.70, 'reward': 0.72, 'boost': 2, 'min30sec':2880, 'minutes':0, 'hours':24}//72 equivalent 20 minutes
   }
-  var period = periods.hr24
-
-  var now = new Date()
-  var last24Hours = date.addHours(now,-24)
+  var period = periods.hr8
 }
 
 
 exports.handler = async (event)=> {
-  
+
+
+  if(typeof event.period != "undefined")
+    period = periods[event.period]
+  console.log(period)
+
   try {
     var imeisMap = new Map()
     await pullRaveltieData(async (data)=> {
@@ -87,7 +89,7 @@ exports.handler = async (event)=> {
         imei.overlapping.push({'imei':overlap.imei})
     })
     
-    var imeiFuses = new Map()
+    var imeiFuses = new Map() 
     var overlapFuses = new Map()
 
     await trackRaveltie(imeisMap, async (fused,overlappingImei,imei)=> {
@@ -126,18 +128,35 @@ exports.handler = async (event)=> {
 }
 
 let pullRaveltieData =async (done)=> {
+
+  var now = new Date()
+  var lastHourly = date.addHours(now, (period.hours * -1) )
+  var lastMinutely = date.addMinutes(lastHourly, (period.minutes * -1))
+
+  // console.log(date.format(now, 'hh:mm'))
+  // console.log(date.format(lastHourly, 'hh:mm'))
+  // console.log(date.format(lastMinutely, 'hh:mm'))
+
   //get all locations/scores of all imeis for last 24 hours
   var scan = {
     TableName : 'raveltie2',
     Limit : 100,
     FilterExpression: '#ts > :greatherthan',
     ExpressionAttributeValues: {
-      ':greatherthan': last24Hours.getTime().toString()
+      ':greatherthan': lastMinutely.getTime().toString()
     },
     ExpressionAttributeNames : {'#ts':'timestamp'}
   }
+  try {
+    await scanning(scan,done)  
+  }catch(error) {
+    if(error instanceof Error && error.code === 'ResourceNotFoundException') {
+      console.error("Dynamo DB Resource Empty")
+    } else {
+      throw error
+    }
+  }
   
-  await scanning(scan,done)
 }
 let detectOverlaps =async (imeisMap,done)=> {
   
@@ -406,7 +425,7 @@ let updateRaveltieScore =async (imeisMap,imeiKey)=> {
   var  imei = imeisMap.get(imeiKey)
   //Update score and delete processed locations?
   var updateScore = {
-    TableName : 'raveltie2',
+    TableName : 'raveltie3',
     Item : {
       imei :imeiKey,
       timestamp : 'score',
@@ -424,7 +443,7 @@ let updateRaveltieScore =async (imeisMap,imeiKey)=> {
   await imei.locations.forEach(async (location,index,array)=> {
     var deleteRequest =  
     {
-      TableName : 'raveltie2',
+      TableName : 'raveltie3',
       Key : {
         imei : imeiKey,
         timestamp : location.timestamp.toString()
