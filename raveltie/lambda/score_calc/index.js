@@ -58,15 +58,15 @@
   ]
   //no point in having periods unless there are exponential score point rewards
   var periods = {
-    'min1':{'coverage': 1.0, 'reward': 0.0025, 'boost': 0.5, 'min30sec':2},// 0.5 equivalent 20 minutes
-    'min7':{'coverage': 0.95, 'reward': 0.005, 'boost': 0.75, 'min30sec':14},// 0.14 equivalent 20 minutes
-    'min20':{'coverage': 0.90, 'reward': 0.01, 'boost': 1, 'min30sec':40},// 1 equivalent 20 minutes
-    'hr2':{'coverage': 0.85, 'reward': 0.06, 'boost': 1.25, 'min30sec':240},// 6 equivalent 20 minutes
-    'hr8':{'coverage': 0.80, 'reward': 0.24, 'boost': 1.5, 'min30sec':960},// 24 equivalent 20 minutes
-    'hr16':{'coverage': 0.75, 'reward': 0.48, 'boost': 1.75, 'min30sec':1920},//48 equivalent 20 minutes
-    'hr24':{'coverage': 0.70, 'reward': 0.72, 'boost': 2, 'min30sec':2880}//72 equivalent 20 minutes
+    'min1':{'coverage': 1.0, 'reward': 0.0025, 'boost': 0.5, 'min30sec':2, 'minutes':1, 'hours':0},// 0.5 equivalent 20 minutes
+    'min7':{'coverage': 0.95, 'reward': 0.005, 'boost': 0.75, 'min30sec':14, 'minutes':7, 'hours':0},// 0.14 equivalent 20 minutes
+    'min20':{'coverage': 0.90, 'reward': 0.01, 'boost': 1, 'min30sec':40, 'minutes':20, 'hours':0},// 1 equivalent 20 minutes
+    'hr2':{'coverage': 0.85, 'reward': 0.06, 'boost': 1.25, 'min30sec':240, 'minutes':0, 'hours':2},// 6 equivalent 20 minutes
+    'hr8':{'coverage': 0.80, 'reward': 0.24, 'boost': 1.5, 'min30sec':960, 'minutes':0, 'hours':8},// 24 equivalent 20 minutes
+    'hr16':{'coverage': 0.75, 'reward': 0.48, 'boost': 1.75, 'min30sec':1920, 'minutes':0, 'hours':16},//48 equivalent 20 minutes
+    'hr24':{'coverage': 0.70, 'reward': 0.72, 'boost': 2, 'min30sec':2880, 'minutes':0, 'hours':24}//72 equivalent 20 minutes
   }
-  var period = periods.hr16
+  var period = periods.hr24
 
   var now = new Date()
   var last24Hours = date.addHours(now,-24)
@@ -130,11 +130,11 @@ let pullRaveltieData =async (done)=> {
   var scan = {
     TableName : 'raveltie2',
     Limit : 100//,
-    // FilterExpression: '#ts > :greatherthan',
-    // ExpressionAttributeValues: {
-    //   ':greatherthan': last24Hours.getTime().toString()
-    // },
-    // ExpressionAttributeNames : {'#ts':'timestamp'}
+    FilterExpression: '#ts > :greatherthan',
+    ExpressionAttributeValues: {
+      ':greatherthan': last24Hours.getTime().toString()
+    },
+    ExpressionAttributeNames : {'#ts':'timestamp'}
   }
   
   await scanning(scan,done)
@@ -431,7 +431,8 @@ let updateRaveltieScore =async (imeisMap,imeiKey)=> {
       }
     }
     if(period === periods.hr24) {
-    // var data2 = await promisify(dynamo.deleteItem.bind(dynamo))(deleteRequest)
+      //@TODO delete asynchronously
+      var data2 = await promisify(dynamo.deleteItem.bind(dynamo))(deleteRequest)
     }
 
   })
