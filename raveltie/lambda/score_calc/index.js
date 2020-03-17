@@ -58,15 +58,15 @@
   ]
   //no point in having periods unless there are exponential score point rewards
   var periods = {
-    'min1':{'coverage': 1.0, 'reward': 0.0025, 'boost': 0.5},// 0.5 equivalent 20 minutes
-    'min7':{'coverage': 0.95, 'reward': 0.005, 'boost': 0.75},// 0.14 equivalent 20 minutes
-    'min20':{'coverage': 0.90, 'reward': 0.01, 'boost': 1},// 1 equivalent 20 minutes
-    'hr2':{'coverage': 0.85, 'reward': 0.06, 'boost': 1.25},// 6 equivalent 20 minutes
-    'hr8':{'coverage': 0.80, 'reward': 0.24, 'boost': 1.5},// 24 equivalent 20 minutes
-    'hr16':{'coverage': 0.75, 'reward': 0.48, 'boost': 1.75},//48 equivalent 20 minutes
-    'hr24':{'coverage': 0.70, 'reward': 0.72, 'boost': 2}//72 equivalent 20 minutes
+    'min1':{'coverage': 1.0, 'reward': 0.0025, 'boost': 0.5, 'min30sec':2},// 0.5 equivalent 20 minutes
+    'min7':{'coverage': 0.95, 'reward': 0.005, 'boost': 0.75, 'min30sec':14},// 0.14 equivalent 20 minutes
+    'min20':{'coverage': 0.90, 'reward': 0.01, 'boost': 1, 'min30sec':40},// 1 equivalent 20 minutes
+    'hr2':{'coverage': 0.85, 'reward': 0.06, 'boost': 1.25, 'min30sec':240},// 6 equivalent 20 minutes
+    'hr8':{'coverage': 0.80, 'reward': 0.24, 'boost': 1.5, 'min30sec':960},// 24 equivalent 20 minutes
+    'hr16':{'coverage': 0.75, 'reward': 0.48, 'boost': 1.75, 'min30sec':1920},//48 equivalent 20 minutes
+    'hr24':{'coverage': 0.70, 'reward': 0.72, 'boost': 2, 'min30sec':2880}//72 equivalent 20 minutes
   }
-  var period = periods.hr24
+  var period = periods.hr16
 
   var now = new Date()
   var last24Hours = date.addHours(now,-24)
@@ -95,7 +95,7 @@ exports.handler = async (event)=> {
       //@TODO should this be executed only after all overlapping callbacks are processed? but per overlapping imei round?
       var element = await putMapItem(
         imeiFuses, imei.imei, {'score':imei.score,'overlap': 
-      await putMapArray(
+      await putMapItem(
         overlapFuses, overlappingImei.imei, { 'stamps':fused,'overlapScore':overlappingImei.score})
       })
       
@@ -105,8 +105,9 @@ exports.handler = async (event)=> {
     console.log("work...")
     // console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
 
-    await fuseStamp(imeiFuses, overlapFuses, async()=> {
-
+    await fuseStamp(imeiFuses, async(imei,transformedScore)=> {
+      imeisMap.get(imei).newscore += transformedScore
+      await updateRaveltieScore(imeisMap, imei)
     })
     // console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
     // console.log(inspect(overlapFuses,{showHidden: false, depth: null}))
@@ -301,64 +302,116 @@ let fuseStamp =async (fuses, done)=> {
   
   await fuses.forEach(async (fuse, imei) => { 
 
-      await fuse.overlap.forEach(async (overlap, array, index) => {
+    await fuse.overlap.forEach(async (overlap, overlapImei) => {
+      // console.log(overlap)
 
-        await overlap.stamps.forEach(async (stamp, array, index) => {
+      await overlap.stamps.forEach(async (stamp, array, index) => {
 
-          await stamp.forEach(async (zone, array, index) => {
-            var z = zone.zone.zone
-            switch(z) {
-              case 'A':
-                zonesA.push(z.timestamp)
-                break;
-              case 'B':
-                zonesB.push(z.timestamp)
-                break;
-              case 'C':
-                zonesC.push(z.timestamp)
-                break;
-              case 'D':
-                zonesD.push(z.timestamp)
-                break;
-              case 'E':
-                zonesE.push(z.timestamp)
-                break;
-            }
-          })// end zones
+        await stamp.forEach(async (zone, array, index) => {
+          var z = zone.zone.zone
+          switch(z) {
+            case 'A':
+              zonesA.push(z.timestamp)
+              break;
+            case 'B':
+              zonesB.push(z.timestamp)
+              break;
+            case 'C':
+              zonesC.push(z.timestamp)
+              break;
+            case 'D':
+              zonesD.push(z.timestamp)
+              break;
+            case 'E':
+              zonesE.push(z.timestamp)
+              break;
+          }
+        })// end zones
 
-        })// end stamps
+      })// end stamps
 
-        var minuteGapsZoneA = zonesA.length / 2;
-        var minuteGapsZoneB = zonesB.length / 2;
-        var minuteGapsZoneC = zonesC.length / 2;
-        var minuteGapsZoneD = zonesD.length / 2;
-        var minuteGapsZoneE = zonesE.length / 2;
-        var minuteGapsZoneF = zonesF.length / 2;
+      //Divide by 2 will give number of minutes
+      var minuteGapsZoneA = zonesA.length / 2;
+      var minuteGapsZoneB = zonesB.length / 2; 
+      var minuteGapsZoneC = zonesC.length / 2;
+      var minuteGapsZoneD = zonesD.length / 2;
+      var minuteGapsZoneE = zonesE.length / 2;
 
-        console.log("zones A Length: "+zonesA.length)
-        console.log("zones B Length: "+zonesB.length)
-        console.log("zones C Length: "+zonesC.length)
-        console.log("zones D Length: "+zonesD.length)
-        console.log("zones E Length: "+zonesE.length)
+      var coverage = period.coverage
 
-      })//end overlaps
+      console.log("zones A Length: "+ zonesA.length)
+      console.log("zones B Length: "+ zonesB.length)
+      console.log("zones C Length: "+ zonesC.length)
+      console.log("zones D Length: "+ zonesD.length)
+      console.log("zones E Length: "+ zonesE.length)
+
+      console.log("Period min 30 sec: "+ period.min30sec)
+
+
+      var letterA = zones.find(letter => letter.zone === 'A')
+      var letterB = zones.find(letter => letter.zone === 'B')
+      var letterC = zones.find(letter => letter.zone === 'C')
+      var letterD = zones.find(letter => letter.zone === 'D')
+      var letterE = zones.find(letter => letter.zone === 'E')
+
+      var formulaA = 0
+      var formulaB = 0
+      var formulaC = 0
+      var formulaD = 0
+      var formulaE = 0
+
+      if(minuteGapsZoneA >= (period.coverage * period.min30sec))
+        formulaA = (overlap.overlapScore ) * ( letterA.multiplier ) * ( period.reward ) * ( period.boost )
+      if(minuteGapsZoneB >= (period.coverage * period.min30sec))
+        formulaB = (overlap.overlapScore ) * ( letterB.multiplier ) * ( period.reward ) * ( period.boost )
+      if(minuteGapsZoneC >= (period.coverage * period.min30sec))
+        formulaC = (overlap.overlapScore ) * ( letterC.multiplier ) * ( period.reward ) * ( period.boost )
+      if(minuteGapsZoneD >= (period.coverage * period.min30sec))
+        formulaD = (overlap.overlapScore ) * ( letterD.multiplier ) * ( period.reward ) * ( period.boost )
+      if(minuteGapsZoneE >= (period.coverage * period.min30sec))
+        formulaE = (overlap.overlapScore ) * ( letterE.multiplier ) * ( period.reward ) * ( period.boost )
+
+      var transformedScore = formulaA + formulaB + formulaC + formulaD + formulaE
+
+      await done(imei,transformedScore)
+
+      formulaA = 0
+      formulaB = 0
+      formulaC = 0
+      formulaD = 0
+      formulaE = 0
+
+      if(minuteGapsZoneA >= (period.coverage * period.min30sec))
+        formulaA = ( fuse.score ) * ( letterA.multiplier ) * ( period.reward ) * ( period.boost )
+      if(minuteGapsZoneB >= (period.coverage * period.min30sec))
+        formulaB = ( fuse.score ) * ( letterB.multiplier ) * ( period.reward ) * ( period.boost )
+      if(minuteGapsZoneC >= (period.coverage * period.min30sec))
+        formulaC = ( fuse.score ) * ( letterC.multiplier ) * ( period.reward ) * ( period.boost )
+      if(minuteGapsZoneD >= (period.coverage * period.min30sec))
+        formulaD = ( fuse.score ) * ( letterD.multiplier ) * ( period.reward ) * ( period.boost )
+      if(minuteGapsZoneE >= (period.coverage * period.min30sec))
+        formulaE = ( fuse.score ) * ( letterE.multiplier ) * ( period.reward ) * ( period.boost )
+
+      transformedScore = formulaA + formulaB + formulaC + formulaD + formulaE
+
+      await done(overlapImei,transformedScore)
+
+    })//end overlaps
     
   })//end fuses
 
-  // await updateRaveltieScore(imeisMap,mainImei,mainImeiKey)
-
-  // var formula = (overlapScore ) * ( % Zone Multiplier ) * ( % Period Reward ) * ( % Period Boost )
-
 }
-let updateRaveltieScore =async (imeisMap,mainImei,mainImeiKey)=> {
+let updateRaveltieScore =async (imeisMap,imeiKey)=> {
+
+  var  imei = imeisMap.get(imeiKey)
   //Update score and delete processed locations?
   var updateScore = {
     TableName : 'raveltie2',
     Item : {
-      imei : mainImei.imei,
+      imei :imeiKey,
       timestamp : 'score',
-      // score : (mainImei.score + mainImei.newscore)
-      score : mainImei.score
+      score : (imei.newscore + imei.score)
+      // score : mainImei.score
     },
     // UpdateExpression: '',
     ReturnValues:"ALL_OLD"
@@ -366,33 +419,29 @@ let updateRaveltieScore =async (imeisMap,mainImei,mainImeiKey)=> {
   
   var data = await promisify(dynamo.putItem.bind(dynamo))(updateScore)
 
-
   //maybe make sure that old score being replaced isn't higher
 
-
-  await mainImei.locations.forEach(async (location,index,array)=> {
+  await imei.locations.forEach(async (location,index,array)=> {
     var deleteRequest =  
     {
       TableName : 'raveltie2',
       Key : {
-        imei : mainImei.imei,
+        imei : imeiKey,
         timestamp : location.timestamp.toString()
       }
     }
+    if(period === periods.hr24) {
     // var data2 = await promisify(dynamo.deleteItem.bind(dynamo))(deleteRequest)
+    }
 
   })
-
-
   //discard mainImei and update to database but increase secondaryImei score too
 
-  imeisMap.delete(mainImeiKey)
-
-
-
+  imeisMap.delete(imeiKey)
   //once finish processing delete overlapping imei's for current zone
-  mainImei.overlapping = []
-  mainImei.locations = []//free up some memory?
+  imei.overlapping = []
+  imei.locations = []//free up some memory?
+
 }
 let rewindOrForward =async (timestamp, secTimestamp,secArray,secIndex, done)=> {
 
@@ -565,20 +614,8 @@ let putMapItem =async (map,key,object)=> {
     map.set(key,object)
     element = map.get(key)
   }
-  return element
+  return map
 }
-let putMapArray =async (map,key,array)=> {
-  var element 
-  if(map.has(key)) {
-    element = map.get(key)
-    element.push(array)
-  } else {
-    map.set(key,[array])
-    element = map.get(key)
-  }
-  return element
-}
-
 /*
   calculation equals to distance from user A time x to user B time x minus GPS accuracy minus zone
   result less than 0 is inside zone, greater than 0 is outside zone.
