@@ -67,6 +67,7 @@
     'hr24':{'coverage': 0.70, 'reward': 0.72, 'boost': 2, 'min30sec':2880, 'minutes':0, 'hours':24}//72 equivalent 20 minutes
   }
   var period = periods.hr8
+  var tableName = 'raveltie'
 }
 
 
@@ -139,7 +140,7 @@ let pullRaveltieData =async (done)=> {
 
   //get all locations/scores of all imeis for last 24 hours
   var scan = {
-    TableName : 'raveltie2',
+    TableName : tableName,
     Limit : 100,
     FilterExpression: '#ts > :greatherthan',
     ExpressionAttributeValues: {
@@ -425,7 +426,7 @@ let updateRaveltieScore =async (imeisMap,imeiKey)=> {
   var  imei = imeisMap.get(imeiKey)
   //Update score and delete processed locations?
   var updateScore = {
-    TableName : 'raveltie3',
+    TableName : tableName,
     Item : {
       imei :imeiKey,
       timestamp : 'score',
@@ -443,7 +444,7 @@ let updateRaveltieScore =async (imeisMap,imeiKey)=> {
   await imei.locations.forEach(async (location,index,array)=> {
     var deleteRequest =  
     {
-      TableName : 'raveltie3',
+      TableName : tableName,
       Key : {
         imei : imeiKey,
         timestamp : location.timestamp.toString()

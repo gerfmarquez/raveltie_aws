@@ -20,7 +20,7 @@ exports.handler = (event, context, callback) => {
 
     const done = (err, res) => callback(null, {
         statusCode: err ? '400' : '200',
-        body: err ? err.message : JSON.stringify(res),
+        body: err ? err.message : res,
         headers: {
             'Content-Type': 'application/json',
         },
@@ -39,7 +39,7 @@ function pullRaveltieScore(done) {
       KeyConditionExpression: '#imei = :imei and #ts = :score',
       ExpressionAttributeValues: {
         ':score': 'score',
-        ':imei': '9198473441482201'
+        ':imei': event.queryStringParameters.imei
       },
       ExpressionAttributeNames : {
       	'#ts':'timestamp',
