@@ -70,7 +70,9 @@
   var tableName = 'raveltie'
 }
 
-
+let sleep =async (ms)=> {
+  return new Promise(resolve => setTimeout(resolve, ms)) 
+}
 exports.handler = async (event)=> {
 
 
@@ -80,10 +82,10 @@ exports.handler = async (event)=> {
 
   try {
     var imeisMap = new Map()
-    await pullRaveltieData(async (data)=> {
+    await pullRaveltieData(async(data)=> {
       await transformRaveltieData(imeisMap,data)
 
-    })
+   })
     await sortTimestamps(imeisMap)
 
     await detectOverlaps(imeisMap,async (imei,overlap)=> {
@@ -119,16 +121,14 @@ exports.handler = async (event)=> {
   } catch(promisifyError) {
     console.error(promisifyError)
   }
- 
-  let response = {
-    statusCode: 200,
-    body: 'Done'
-  }
+  await sleep(15 * 1000)
+ 	
+
 
   return{"response":"200"}
 }
 
-let pullRaveltieData =async (done)=> {
+let pullRaveltieData = async(done)=> {
 
   var now = new Date()
   var lastHourly = date.addHours(now, (period.hours * -1) )
@@ -138,7 +138,7 @@ let pullRaveltieData =async (done)=> {
   // console.log(date.format(lastHourly, 'hh:mm'))
   // console.log(date.format(lastMinutely, 'hh:mm'))
 
-  //get all locations/scores of all imeis for last 24 hours
+  // get all locations/scores of all imeis for last 24 hours
   var scan = {
     TableName : tableName,
     Limit : 100,
@@ -157,7 +157,6 @@ let pullRaveltieData =async (done)=> {
       throw error
     }
   }
-  
 }
 let detectOverlaps =async (imeisMap,done)=> {
   
@@ -257,7 +256,7 @@ let trackRaveltie =async (imeisMap,done)=> {
             
       })//end main Imei Locations
 
-      done(fused, overlappingImei, mainImei)
+      await done(fused, overlappingImei, mainImei)
 
       overlappingImeis.push(overlapping.imei)
 

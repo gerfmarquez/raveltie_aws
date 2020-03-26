@@ -17,21 +17,24 @@ const dynamo = new doc.DynamoDB();
  */
 exports.handler = (event, context, callback) => {
     //console.log('Received event:', JSON.stringify(event, null, 2));
-
-    const done = (err, res) => callback(null, {
+    console.log(event)
+    const done = (err, res) => {
+      var response = {
         statusCode: err ? '400' : '200',
-        body: err ? err.message : res,
+        body: err ? err.message : JSON.stringify(res),
         headers: {
             'Content-Type': 'application/json',
         },
-    });
+      }
+      console.log(response)
+      callback(null, response);
+    }
 
-
-    pullRaveltieScore(done);
+    pullRaveltieScore(event,done);
 
 };
 
-function pullRaveltieScore(done) {
+function pullRaveltieScore(event,done) {
 
     //get all locations/scores of all imeis for last 24 hours
     var query = {
@@ -48,23 +51,15 @@ function pullRaveltieScore(done) {
 
     dynamo.query(query, function(err, data) {
        if (err) {
+        console.err(err);
        	done(new Error(`Generic Error`))
-        console.log(err);
        } else {
-        //console.log(data);
-        var imeisArray = data.Items;
-
-        if(imeisArray.length < 1) {
-        	done(new Error(`Generic Error`))
-        	return;
+       	console.log(data.Items)
+        if(data.Items.length > 0) {
+          done(null,data.Items[0])
+        } else {
+          done(new Error("Not Found"))
         }
-        imeisArray.forEach(
-            function(value, index, array) {
-            	console.log(value);
-            	console.log(index);
-            	console.log(array);
-            	done(null,value)
-            });
         
        }
     });
