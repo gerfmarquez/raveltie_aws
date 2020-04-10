@@ -41,7 +41,7 @@
     agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
     appName: "MyNodejsApp",
     autoProfiling: true,
-    debug: true
+    debug: false
   })
 }
 
@@ -66,7 +66,7 @@
     'hr16':{'coverage': 0.75, 'reward': 0.48, 'boost': 1.75, 'min30sec':1920, 'minutes':0, 'hours':16},//48 equivalent 20 minutes
     'hr24':{'coverage': 0.70, 'reward': 0.72, 'boost': 2, 'min30sec':2880, 'minutes':0, 'hours':24}//72 equivalent 20 minutes
   }
-  var period = periods.hr8
+  var period = periods.hr2
   var tableName = 'raveltie'
 }
 
@@ -74,6 +74,10 @@ let sleep =async (ms)=> {
   return new Promise(resolve => setTimeout(resolve, ms)) 
 }
 exports.handler = async (event)=> {
+
+	console.log("running")
+
+	await sleep(4 * 1000)
 
 
   if(typeof event.period != "undefined")
@@ -86,6 +90,7 @@ exports.handler = async (event)=> {
       await transformRaveltieData(imeisMap,data)
 
    })
+    // console.log(imeisMap)
     await sortTimestamps(imeisMap)
 
     await detectOverlaps(imeisMap,async (imei,overlap)=> {
@@ -107,7 +112,7 @@ exports.handler = async (event)=> {
       
       //@TODO reset overlapFuses after loop?
     })
-    console.log("work...")
+    // console.log("work...")
     // console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
 
     await fuseStamp(imeiFuses, async(imei,transformedScore)=> {
@@ -116,12 +121,19 @@ exports.handler = async (event)=> {
     })
     // console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
     // console.log(inspect(overlapFuses,{showHidden: false, depth: null}))
-    
+    if(period === periods.hr24) {
+	    console.log("cleanup")
+	    
+	    await cleanup(imeisMap)
+
+	    console.log("cleanup end")
+    }
+
 
   } catch(promisifyError) {
     console.error(promisifyError)
   }
-  await sleep(15 * 1000)
+  await sleep(4 * 1000)
  	
 
 
@@ -440,28 +452,6 @@ let updateRaveltieScore =async (imeisMap,imeiKey)=> {
 
   //maybe make sure that old score being replaced isn't higher
 
-  await imei.locations.forEach(async (location,index,array)=> {
-    var deleteRequest =  
-    {
-      TableName : tableName,
-      Key : {
-        imei : imeiKey,
-        timestamp : location.timestamp.toString()
-      }
-    }
-    if(period === periods.hr24) {
-      //@TODO delete asynchronously
-      var data2 = await promisify(dynamo.deleteItem.bind(dynamo))(deleteRequest)
-    }
-
-  })
-  //discard mainImei and update to database but increase secondaryImei score too
-
-  imeisMap.delete(imeiKey)
-  //once finish processing delete overlapping imei's for current zone
-  imei.overlapping = []
-  imei.locations = []//free up some memory?
-
 }
 let rewindOrForward =async (timestamp, secTimestamp,secArray,secIndex, done)=> {
 
@@ -614,6 +604,53 @@ let transformRaveltieData =async (imeisMap,data)=> {
         'timestamp':Number(data.timestamp)})
   }
 }
+let cleanup =async (imeisMap)=> {
+
+	var elapsed = new Date().getTime()
+
+  var imeiPromiseMap = Array.from(imeisMap).map(([imeiKey,imei])=> {
+		console.log("no cheating start")
+	  var promiseMap = imei.locations.map(location=> {
+	    var deleteRequest =  
+	    {
+	      TableName : tableName,
+	      Key : {
+	        imei : imeiKey,
+	        timestamp : location.timestamp.toString()
+	      }//,
+	      // ReturnValues:"ALL_OLD"
+	    }
+      var promise = 
+      	promisify(dynamo.deleteItem.bind(dynamo))(deleteRequest)
+	  	return promise
+	  })
+	  return promiseMap
+  })//end imeisMap
+
+
+  await imeiPromiseMap.forEach(async(promises)=> {
+  	await Promise.all(promises)
+  	console.log("no cheating end")
+  })
+  
+	
+  elapsed = (new Date().getTime()) - elapsed
+  console.log("elapsed delete: "+ elapsed )
+
+
+}
+
+Map.prototype.forEachAsync =async function (done) {
+  for (let [key, value] of this) { 
+    done(value, key)
+  }
+}
+Array.prototype.forEachAsync =async function(done) {
+  for (let index = 0; index < this.length; index++) {
+    done(this[index], index, this)
+  }
+}
+
 Map.prototype.forEach =async function (done) {
   for (let [key, value] of this) { 
     await done(value, key)
