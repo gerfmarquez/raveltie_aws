@@ -98,22 +98,25 @@ exports.handler = async (event)=> {
     })
     
     var imeiFuses = new Map() 
-    var overlapFuses = new Map()
 
-    await trackRaveltie(imeisMap, async (fused,overlappingImei,imei)=> {
+    // console.log("initial: "+inspect(imeisMap,{showHidden: false, depth: null, maxArrayLength:4}))
+
+    await trackRaveltie(imeisMap, async (fused,overlappingImei,imei)=> {  
+    	
       //@TODO currently this raveltie callback is executed per overlapping location.
       //@TODO should this be executed only after all overlapping callbacks are processed? but per overlapping imei round?
-      var element = await putMapItem(
-        imeiFuses, imei.imei, {'score':imei.score,'overlap': 
-      await putMapItem(
-        overlapFuses, overlappingImei.imei, { 'stamps':fused,'overlapScore':overlappingImei.score})
-      })
+      console.log("imei "+inspect(imei,{showHidden: false, depth: null, maxArrayLength: 4}))
+      console.log("overlap"+inspect(overlappingImei,{showHidden: false, depth: null, maxArrayLength: 4})) 
+
+
+      element2  = await putMapItem(imeiFuses.get(imei), overlappingImei.imei, { 'stamps':fused,'overlapScore':overlappingImei.score}) 
+      imeiFuses = await putMapItem(imeiFuses, imei.imei, {'score':imei.score,'overlap': element2})
       
-      
+      // console.log("fuse: "+inspect(imeiFuses,{showHidden: false, depth: null, maxArrayLength: 4})) 
       //@TODO reset overlapFuses after loop?
     })
     // console.log("work...")
-    // console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
+    console.log("fuses:"+inspect(imeiFuses,{showHidden: false, depth: null, maxArrayLength: 4}))
 
     await fuseStamp(imeiFuses, async(imei,transformedScore)=> {
       imeisMap.get(imei).newscore += transformedScore
@@ -143,7 +146,7 @@ exports.handler = async (event)=> {
 let pullRaveltieData = async(done)=> {
 
   var now = new Date()
-  var lastHourly = date.addHours(now, (period.hours * -1) )
+  var lastHourly = date.addHours(now, (period.hours * -1) ) 
   var lastMinutely = date.addMinutes(lastHourly, (period.minutes * -1))
 
   // console.log(date.format(now, 'hh:mm'))
@@ -171,18 +174,20 @@ let pullRaveltieData = async(done)=> {
   }
 }
 let detectOverlaps =async (imeisMap,done)=> {
-  
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
     if(mainImei.locations.length === 0) return
 
     // if(mainImei.imei === "9dd419498375d3b8ea10429670e432e80ecfa77697f6ecc943ad66de40425928")return
 
     var boundingBox = geolocation.getBoundingBox(mainImei.locations, zones[0].radius)//at least zone A
-    try {
-      await imeisMap.forEach(async (secondaryImei,secondaryImeiKey)=> {
-        if(mainImei.imei === secondaryImei.imei) return
-        // if(mainImei.overlapping.includes())
 
+    await imeisMap.forEach(async (secondaryImei,secondaryImeiKey)=> {
+      if(mainImei.imei === secondaryImei.imei) {
+      	// console.log("skip mainimei: "+mainImei.imei+" : "+secondaryImei.imei)
+      	return
+      }
+      try {	
+      	// if(mainImei.overlapping.includes())
         await secondaryImei.locations.forEach(async (secondaryLocation,index,array)=> {
 
           var inside = geolocation.insideBoundingBox(secondaryLocation,boundingBox)
@@ -192,22 +197,16 @@ let detectOverlaps =async (imeisMap,done)=> {
             throw PrecheckBreakException//skip to next secondaryImei, not yet time to do final processing
           }
         }) 
-
-      })
-    }catch(precheckBreakException){
-      if(precheckBreakException instanceof Error) {
-        throw precheckBreakException
-      } else {
-
-      }
-    }
-  })
+    	}catch(precheckBreakException){
+	      if(precheckBreakException instanceof Error) throw precheckBreakException
+  		}
+    })//end of secondary
+  })//end of main
 
 }
 let trackRaveltie =async (imeisMap,done)=> {
 
   var overlappingImeis = []
-  // var smth = ['joe', 'jane', 'mary']
 
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
     //don't process twice overlapping since 
@@ -370,13 +369,13 @@ let fuseStamp =async (fuses, done)=> {
 
       var coverage = period.coverage
 
-      console.log("zones A Length: "+ zonesA.length)
-      console.log("zones B Length: "+ zonesB.length)
-      console.log("zones C Length: "+ zonesC.length)
-      console.log("zones D Length: "+ zonesD.length)
-      console.log("zones E Length: "+ zonesE.length)
+      // console.log("zones A Length: "+ zonesA.length)
+      // console.log("zones B Length: "+ zonesB.length)
+      // console.log("zones C Length: "+ zonesC.length)
+      // console.log("zones D Length: "+ zonesD.length)
+      // console.log("zones E Length: "+ zonesE.length)
 
-      console.log("Period min 30 sec: "+ period.min30sec)
+      // console.log("Period min 30 sec: "+ period.min30sec)
 
 
       var letterA = zones.find(letter => letter.zone === 'A')
@@ -402,7 +401,22 @@ let fuseStamp =async (fuses, done)=> {
       if(minuteGapsZoneE >= (period.coverage * period.min30sec))
         formulaE = (overlap.overlapScore ) * ( letterE.multiplier ) * ( period.reward ) * ( period.boost )
 
+
       var transformedScore = formulaA + formulaB + formulaC + formulaD + formulaE
+
+      if(transformedScore > 0) {
+	      console.log("formula A: "+ formulaA)
+	      console.log("formula B: "+ formulaB)
+	      console.log("formula C: "+ formulaC)
+	      console.log("formula D: "+ formulaD)
+	      console.log("formula E: "+ formulaE)
+
+	      console.log("fuse: "+imei)
+        console.log("effective fuse score: "+overlap.overlapScore)
+      	console.log("transformed score fuse: "+transformedScore)
+      } else {
+      	console.log("zero transformed fuse: "+imei)
+      }
 
       await done(imei,transformedScore)
 
@@ -424,6 +438,20 @@ let fuseStamp =async (fuses, done)=> {
         formulaE = ( fuse.score ) * ( letterE.multiplier ) * ( period.reward ) * ( period.boost )
 
       transformedScore = formulaA + formulaB + formulaC + formulaD + formulaE
+
+      if(transformedScore > 0) {
+	      console.log("formula A: "+ formulaA)
+	      console.log("formula B: "+ formulaB)
+	      console.log("formula C: "+ formulaC)
+	      console.log("formula D: "+ formulaD)
+	      console.log("formula E: "+ formulaE)
+
+	      console.log("overlap: "+overlapImei)
+        console.log("effective overlap score: "+fuse.score)
+      	console.log("transformed score overlap: "+transformedScore)
+      } else {
+				console.log("zero transformed overlap: "+overlapImei)
+      }
 
       await done(overlapImei,transformedScore)
 
@@ -662,16 +690,23 @@ Array.prototype.forEach =async function(done) {
   }
 }
 let putMapItem =async (map,key,object)=> {
-  var element 
+	if(typeof map == "undefined") {
+		map = new Map()
+	}
   if(map.has(key)) {
-    // element = map.get(key)
-    // element.push(object)
-    throw Error("shouldn't happen")
+  	if(typeof object.overlap == "undefined") {
+  		throw new Error("Abort due to new bug on map merging, not supported on top level, only on overlaps")
+  	}
+  	// console.log("error imei"+key+" inspect: "+inspect(map.get(key).overlap,{showHidden: false, depth: null, maxArrayLength: 4}))
+  	// console.log("error2 imei"+key+" inspect: "+inspect(object.overlap,{showHidden: false, depth: null, maxArrayLength: 4}))
+		var nested = new Map([...map.get(key).overlap, ...object.overlap])
+		map.get(key).overlap = nested
+		// console.log("nested imei"+key+" inspect: "+inspect(nested,{showHidden: false, depth: null, maxArrayLength: 4}))
+    
   } else {
     map.set(key,object)
-    element = map.get(key)
   }
-  return map
+  return map// return null for Top Level
 }
 /*
   calculation equals to distance from user A time x to user B time x minus GPS accuracy minus zone
