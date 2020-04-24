@@ -40,7 +40,7 @@
   var agent = stackimpact.start({
     agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
     appName: "MyNodejsApp",
-    autoProfiling: true,
+    autoProfiling: false,
     debug: false
   })
 }
@@ -77,7 +77,7 @@ exports.handler = async (event)=> {
 
 	console.log("running")
 
-	await sleep(4 * 1000)
+	// await sleep(4 * 1000)
 
 
   if(typeof event.period != "undefined")
@@ -99,14 +99,14 @@ exports.handler = async (event)=> {
     
     var imeiFuses = new Map() 
 
-    // console.log("initial: "+inspect(imeisMap,{showHidden: false, depth: null, maxArrayLength:4}))
+    console.log("initial: "+inspect(imeisMap,{showHidden: false, depth: null, maxArrayLength:6}))
 
     await trackRaveltie(imeisMap, async (fused,overlappingImei,imei)=> {  
     	
       //@TODO currently this raveltie callback is executed per overlapping location.
       //@TODO should this be executed only after all overlapping callbacks are processed? but per overlapping imei round?
-      console.log("imei "+inspect(imei,{showHidden: false, depth: null, maxArrayLength: 4}))
-      console.log("overlap"+inspect(overlappingImei,{showHidden: false, depth: null, maxArrayLength: 4})) 
+      console.log("imeiA "+inspect(imei,{showHidden: false, depth: null, maxArrayLength: 4}))
+      console.log("imeiB"+inspect(overlappingImei,{showHidden: false, depth: null, maxArrayLength: 4})) 
 
 
       element2  = await putMapItem(imeiFuses.get(imei), overlappingImei.imei, { 'stamps':fused,'overlapScore':overlappingImei.score}) 
@@ -136,7 +136,7 @@ exports.handler = async (event)=> {
   } catch(promisifyError) {
     console.error(promisifyError)
   }
-  await sleep(4 * 1000)
+  // await sleep(4 * 1000)
  	
 
 
@@ -200,7 +200,7 @@ let detectOverlaps =async (imeisMap,done)=> {
     	}catch(precheckBreakException){
 	      if(precheckBreakException instanceof Error) throw precheckBreakException
   		}
-    })//end of secondary
+    }) //end of secondary
   })//end of main
 
 }
@@ -209,16 +209,15 @@ let trackRaveltie =async (imeisMap,done)=> {
   var overlappingImeis = []
 
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
-    //don't process twice overlapping since 
-    if(overlappingImeis.includes(mainImei.imei)) {
-      return
-    }
     //once all secondary Imeis are processed we can calculate new score for mainImei
     await mainImei.overlapping.forEach(async (overlapping, index, array)=> {
 
-      var overlappingImei = imeisMap.get(overlapping.imei)
+    	if(overlappingImeis.includes(overlapping.imei)) {
+    		console.log("one way fuse skipping imei: "+overlapping.imei)
+      	return
+    	}
 
-      if(typeof overlappingImei == "undefined") return
+      var overlappingImei = imeisMap.get(overlapping.imei)
 
       var trackingIndex = 0
       var fused = []
@@ -269,7 +268,7 @@ let trackRaveltie =async (imeisMap,done)=> {
 
       await done(fused, overlappingImei, mainImei)
 
-      overlappingImeis.push(overlapping.imei)
+      overlappingImeis.push(mainImei.imei)
 
     })//end main Imei Overlapping
 
@@ -405,17 +404,17 @@ let fuseStamp =async (fuses, done)=> {
       var transformedScore = formulaA + formulaB + formulaC + formulaD + formulaE
 
       if(transformedScore > 0) {
-	      console.log("formula A: "+ formulaA)
-	      console.log("formula B: "+ formulaB)
-	      console.log("formula C: "+ formulaC)
-	      console.log("formula D: "+ formulaD)
-	      console.log("formula E: "+ formulaE)
+	      // console.log("formula A: "+ formulaA)
+	      // console.log("formula B: "+ formulaB)
+	      // console.log("formula C: "+ formulaC)
+	      // console.log("formula D: "+ formulaD)
+	      // console.log("formula E: "+ formulaE)
 
-	      console.log("fuse: "+imei)
-        console.log("effective fuse score: "+overlap.overlapScore)
-      	console.log("transformed score fuse: "+transformedScore)
+	      console.log("fuseA: "+imei+
+	      	" effective fuse score: "+overlap.overlapScore+
+	      	" transformed score fuse: "+transformedScore)
       } else {
-      	console.log("zero transformed fuse: "+imei)
+      	// console.log("zero transformed fuse: "+imei)
       }
 
       await done(imei,transformedScore)
@@ -440,17 +439,17 @@ let fuseStamp =async (fuses, done)=> {
       transformedScore = formulaA + formulaB + formulaC + formulaD + formulaE
 
       if(transformedScore > 0) {
-	      console.log("formula A: "+ formulaA)
-	      console.log("formula B: "+ formulaB)
-	      console.log("formula C: "+ formulaC)
-	      console.log("formula D: "+ formulaD)
-	      console.log("formula E: "+ formulaE)
+	      // console.log("formula A: "+ formulaA)
+	      // console.log("formula B: "+ formulaB)
+	      // console.log("formula C: "+ formulaC)
+	      // console.log("formula D: "+ formulaD)
+	      // console.log("formula E: "+ formulaE)
 
-	      console.log("overlap: "+overlapImei)
-        console.log("effective overlap score: "+fuse.score)
-      	console.log("transformed score overlap: "+transformedScore)
+	      console.log("fuseB: "+overlapImei+
+	      	" effective overlap score: "+fuse.score+
+	      	" transformed score overlap: "+transformedScore)
       } else {
-				console.log("zero transformed overlap: "+overlapImei)
+				// console.log("zero transformed overlap: "+overlapImei)
       }
 
       await done(overlapImei,transformedScore)
@@ -633,7 +632,6 @@ let transformRaveltieData =async (imeisMap,data)=> {
   }
 }
 let cleanup =async (imeisMap)=> {
-
 	var elapsed = new Date().getTime()
 
   var imeiPromiseMap = Array.from(imeisMap).map(([imeiKey,imei])=> {
@@ -664,8 +662,6 @@ let cleanup =async (imeisMap)=> {
 	
   elapsed = (new Date().getTime()) - elapsed
   console.log("elapsed delete: "+ elapsed )
-
-
 }
 
 Map.prototype.forEachAsync =async function (done) {
