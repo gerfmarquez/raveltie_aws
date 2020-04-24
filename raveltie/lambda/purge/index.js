@@ -68,6 +68,7 @@
   }
   var period = periods.hr24
   var tableName = 'raveltie'
+  var purgeCount = 0
 }
 
 let sleep =async (ms)=> {
@@ -91,9 +92,11 @@ exports.handler = async (event)=> {
 
    })
 
+    console.log("purged count: "+purgeCount)
+
     console.log("cleanup")
     
-    // await cleanup(imeisMap)
+    await cleanup(imeisMap)
 
     console.log("cleanup end")
 
@@ -108,6 +111,7 @@ exports.handler = async (event)=> {
 let pullRaveltieData = async(done)=> {
 
   var now = new Date()
+  console.log("now : "+now.getTime().toString())
   var lastHourly = date.addHours(now, (period.hours * -1) ) 
   var lastMinutely = date.addMinutes(lastHourly, (period.minutes * -1))
 
@@ -136,20 +140,16 @@ let pullRaveltieData = async(done)=> {
   }
 }
 
-
-
-
-
 let scanning =async (scan,done)=> {
 
   const data = await promisify(dynamo.scan.bind(dynamo))(scan)
   var scanResults = data.Items
 
   await scanResults.forEach(async (value, index, array)=> {
+    // console.log(value)
     await done(value)
   })
-  console.log("Scanned Count: "+data.ScannedCount)
-  console.log("Count: "+data.Count)
+  purgeCount += data.Count
   if(typeof data.LastEvaluatedKey != "undefined") {
     scan.ExclusiveStartKey = data.LastEvaluatedKey
     await scanning(scan,done)
