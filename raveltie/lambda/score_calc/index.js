@@ -124,13 +124,6 @@ exports.handler = async (event)=> {
     })
     // console.log(inspect(imeiFuses,{showHidden: false, depth: null}))
     // console.log(inspect(overlapFuses,{showHidden: false, depth: null}))
-    if(period === periods.hr24) {
-	    console.log("cleanup")
-	    
-	    await cleanup(imeisMap)
-
-	    console.log("cleanup end")
-    }
 
 
   } catch(promisifyError) {
@@ -630,38 +623,6 @@ let transformRaveltieData =async (imeisMap,data)=> {
         'accuracy':Number(data.accuracy),
         'timestamp':Number(data.timestamp)})
   }
-}
-let cleanup =async (imeisMap)=> {
-	var elapsed = new Date().getTime()
-
-  var imeiPromiseMap = Array.from(imeisMap).map(([imeiKey,imei])=> {
-		console.log("no cheating start")
-	  var promiseMap = imei.locations.map(location=> {
-	    var deleteRequest =  
-	    {
-	      TableName : tableName,
-	      Key : {
-	        imei : imeiKey,
-	        timestamp : location.timestamp.toString()
-	      }//,
-	      // ReturnValues:"ALL_OLD"
-	    }
-      var promise = 
-      	promisify(dynamo.deleteItem.bind(dynamo))(deleteRequest)
-	  	return promise
-	  })
-	  return promiseMap
-  })//end imeisMap
-
-
-  await imeiPromiseMap.forEach(async(promises)=> {
-  	await Promise.all(promises)
-  	console.log("no cheating end")
-  })
-  
-	
-  elapsed = (new Date().getTime()) - elapsed
-  console.log("elapsed delete: "+ elapsed )
 }
 
 Map.prototype.forEachAsync =async function (done) {
