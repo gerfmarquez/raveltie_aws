@@ -66,7 +66,7 @@
     'hr16':{'coverage': 0.75, 'reward': 0.48, 'boost': 1.75, 'min30sec':1920, 'minutes':0, 'hours':16},//48 equivalent 20 minutes
     'hr24':{'coverage': 0.70, 'reward': 0.72, 'boost': 2, 'min30sec':2880, 'minutes':0, 'hours':24}//72 equivalent 20 minutes
   }
-  var period = periods.hr24
+  var period = periods.hr2
   var tableName = 'raveltie'
   var purgeCount = 0
 }
@@ -111,13 +111,13 @@ exports.handler = async (event)=> {
 let pullRaveltieData = async(done)=> {
 
   var now = new Date()
-  console.log("now : "+now.getTime().toString())
-  var lastHourly = date.addHours(now, (period.hours * -1) ) 
-  var lastMinutely = date.addMinutes(lastHourly, (period.minutes * -1))
 
-  // console.log(date.format(now, 'hh:mm'))
-  // console.log(date.format(lastHourly, 'hh:mm'))
-  // console.log(date.format(lastMinutely, 'hh:mm'))
+  var nowTimestamp = now.getTime().toString()
+  var last = date.addHours(now, (period.hours * -1) ) 
+  last = date.addMinutes(last, (period.minutes * -1))
+  var lastTimestamp = last.getTime().toString()
+
+  console.log("now : "+nowTimestamp)
 
   // get all locations/scores of all imeis for last 24 hours
   var scan = {
@@ -125,12 +125,12 @@ let pullRaveltieData = async(done)=> {
     Limit : 100,
     FilterExpression: '#ts < :greatherthan',
     ExpressionAttributeValues: {
-      ':greatherthan': lastMinutely.getTime().toString()
+      ':greatherthan':lastTimestamp
     },
     ExpressionAttributeNames : {'#ts':'timestamp'}
   }
   try {
-    await scanning(scan,done)  
+    await scanning(scan,done,lastTimestamp,nowTimestamp)  
   }catch(error) {
     if(error instanceof Error && error.code === 'ResourceNotFoundException') {
       console.error("Dynamo DB Resource Empty")
@@ -140,7 +140,7 @@ let pullRaveltieData = async(done)=> {
   }
 }
 
-let scanning =async (scan,done)=> {
+let scanning =async (scan,done,last,now)=> {
 
   const data = await promisify(dynamo.scan.bind(dynamo))(scan)
   var scanResults = data.Items
@@ -151,8 +151,24 @@ let scanning =async (scan,done)=> {
   })
   purgeCount += data.Count
   if(typeof data.LastEvaluatedKey != "undefined") {
+
+    // console.log("last evaluated key: "+
+      // inspect(data.LastEvaluatedKey,{showHidden: false, depth: null, maxArrayLength:5}))
+    // console.log("scanned count: "+data.ScannedCount+" count: "+data.Count)
+
+    // console.log("comparison: "+Number(data.LastEvaluatedKey.timestamp) +"  > "  +last)
+
+    if(Number(data.LastEvaluatedKey.timestamp) >  last) {
+        data.LastEvaluatedKey.timestamp =  now
+        // console.log(now)
+    }
+
     scan.ExclusiveStartKey = data.LastEvaluatedKey
-    await scanning(scan,done)
+    // scan.ExclusiveStartKey = {
+    //   imei: '06290ff04ac52fdcdaaaffce4e75f11a7816f2b0f0df62aac09a0c2f0acb86f4',
+    //   timestamp: '1587683519275'
+    // }
+    await scanning(scan,done,last,now)
     return
   } else {
     return 

@@ -139,8 +139,9 @@ exports.handler = async (event)=> {
 let pullRaveltieData = async(done)=> {
 
   var now = new Date()
-  var lastHourly = date.addHours(now, (period.hours * -1) ) 
-  var lastMinutely = date.addMinutes(lastHourly, (period.minutes * -1))
+  var last = date.addHours(now, (period.hours * -1) ) 
+  last = date.addMinutes(last, (period.minutes * -1))
+  var lastTimestamp = last.getTime().toString()
 
   // console.log(date.format(now, 'hh:mm'))
   // console.log(date.format(lastHourly, 'hh:mm'))
@@ -152,12 +153,12 @@ let pullRaveltieData = async(done)=> {
     Limit : 100,
     FilterExpression: '#ts > :greatherthan',
     ExpressionAttributeValues: {
-      ':greatherthan': lastMinutely.getTime().toString()
+      ':greatherthan': lastTimestamp
     },
     ExpressionAttributeNames : {'#ts':'timestamp'}
   }
   try {
-    await scanning(scan,done)  
+    await scanning(scan,done, lastTimestamp)  
   }catch(error) {
     if(error instanceof Error && error.code === 'ResourceNotFoundException') {
       console.error("Dynamo DB Resource Empty")
@@ -578,17 +579,28 @@ let forward =async (secArray,secIndex,timestamp)=> {
   } while (forwardTimestamp < (timestamp + timestampOffset))
 }
 
-let scanning =async (scan,done)=> {
+let scanning =async (scan,done,last)=> {
 
   const data = await promisify(dynamo.scan.bind(dynamo))(scan)
   var scanResults = data.Items
 
   await scanResults.forEach(async (value, index, array)=> {
+    // console.log(value)
     await done(value)
   })
   if(typeof data.LastEvaluatedKey != "undefined") {
+
+    // console.log("last evaluated key: "+
+    //   inspect(data.LastEvaluatedKey,{showHidden: false, depth: null, maxArrayLength:5}))
+    // console.log("scanned count: "+data.ScannedCount+" count: "+data.Count)
+
+    if(Number(data.LastEvaluatedKey.timestamp) <  last) {
+        data.LastEvaluatedKey.timestamp =  last
+        // console.log(now)
+    }
+
     scan.ExclusiveStartKey = data.LastEvaluatedKey
-    await scanning(scan,done)
+    await scanning(scan,done, last)
     return
   } else {
     return 
