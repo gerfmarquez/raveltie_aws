@@ -33,16 +33,9 @@
   var doc = require('dynamodb-doc')
   var date = require('date-and-time')
   var geolocation = require('geolocation-utils')
-  var stackimpact = require('stackimpact')
   var dynamo = new doc.DynamoDB()
   var promisify = require('util').promisify
   var inspect = require('util').inspect
-  var agent = stackimpact.start({
-    agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
-    appName: "MyNodejsApp",
-    autoProfiling: false,
-    debug: false
-  })
 }
 
 {
@@ -66,7 +59,7 @@
     'hr16':{'coverage': 0.75, 'reward': 0.48, 'boost': 1.75, 'min30sec':1920, 'minutes':0, 'hours':16},//48 equivalent 20 minutes
     'hr24':{'coverage': 0.70, 'reward': 0.72, 'boost': 2, 'min30sec':2880, 'minutes':0, 'hours':24}//72 equivalent 20 minutes
   }
-  var period = periods.hr2
+  var period = periods.hr24
   var tableName = 'raveltie'
   var purgeCount = 0
 }
@@ -76,6 +69,7 @@ let sleep =async (ms)=> {
 }
 exports.handler = async (event)=> {
 
+  purgeCount = 0
 	console.log("purge")
 
 	// await sleep(4 * 1000)

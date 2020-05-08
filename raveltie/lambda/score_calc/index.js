@@ -33,16 +33,9 @@
   var doc = require('dynamodb-doc')
   var date = require('date-and-time')
   var geolocation = require('geolocation-utils')
-  var stackimpact = require('stackimpact')
   var dynamo = new doc.DynamoDB()
   var promisify = require('util').promisify
   var inspect = require('util').inspect
-  var agent = stackimpact.start({
-    agentKey: "706fa37259ad936a69bb20d85798c52e941cb55b",
-    appName: "MyNodejsApp",
-    autoProfiling: false,
-    debug: false
-  })
 }
 
 {
@@ -207,7 +200,7 @@ let trackRaveltie =async (imeisMap,done)=> {
     await mainImei.overlapping.forEach(async (overlapping, index, array)=> {
 
     	if(overlappingImeis.includes(overlapping.imei)) {
-    		console.log("one way fuse skipping imei: "+overlapping.imei)
+    		console.log("one way fuse skipping imei: "+mainImei.imei+" overlapping : "+overlapping.imei)
       	return
     	}
 
@@ -353,22 +346,13 @@ let fuseStamp =async (fuses, done)=> {
 
       })// end stamps
 
-      //Divide by 2 will give number of minutes
-      var minuteGapsZoneA = zonesA.length / 2;
-      var minuteGapsZoneB = zonesB.length / 2; 
-      var minuteGapsZoneC = zonesC.length / 2;
-      var minuteGapsZoneD = zonesD.length / 2;
-      var minuteGapsZoneE = zonesE.length / 2;
-
-      var coverage = period.coverage
+      var minCoverage = (period.coverage * period.min30sec)
 
       // console.log("zones A Length: "+ zonesA.length)
       // console.log("zones B Length: "+ zonesB.length)
       // console.log("zones C Length: "+ zonesC.length)
       // console.log("zones D Length: "+ zonesD.length)
       // console.log("zones E Length: "+ zonesE.length)
-
-      // console.log("Period min 30 sec: "+ period.min30sec)
 
 
       var letterA = zones.find(letter => letter.zone === 'A')
@@ -383,15 +367,15 @@ let fuseStamp =async (fuses, done)=> {
       var formulaD = 0
       var formulaE = 0
 
-      if(minuteGapsZoneA >= (period.coverage * period.min30sec))
+      if(zonesA.length >= minCoverage)
         formulaA = (overlap.overlapScore ) * ( letterA.multiplier ) * ( period.reward ) * ( period.boost )
-      if(minuteGapsZoneB >= (period.coverage * period.min30sec))
+      if(zonesB.length >= minCoverage)
         formulaB = (overlap.overlapScore ) * ( letterB.multiplier ) * ( period.reward ) * ( period.boost )
-      if(minuteGapsZoneC >= (period.coverage * period.min30sec))
+      if(zonesC.length >= minCoverage)
         formulaC = (overlap.overlapScore ) * ( letterC.multiplier ) * ( period.reward ) * ( period.boost )
-      if(minuteGapsZoneD >= (period.coverage * period.min30sec))
+      if(zonesD.length >= minCoverage)
         formulaD = (overlap.overlapScore ) * ( letterD.multiplier ) * ( period.reward ) * ( period.boost )
-      if(minuteGapsZoneE >= (period.coverage * period.min30sec))
+      if(zonesE.length >= minCoverage)
         formulaE = (overlap.overlapScore ) * ( letterE.multiplier ) * ( period.reward ) * ( period.boost )
 
 
@@ -403,6 +387,7 @@ let fuseStamp =async (fuses, done)=> {
 	      // console.log("formula C: "+ formulaC)
 	      // console.log("formula D: "+ formulaD)
 	      // console.log("formula E: "+ formulaE)
+
 
 	      console.log("fuseA: "+imei+
 	      	" effective fuse score: "+overlap.overlapScore+
@@ -419,15 +404,15 @@ let fuseStamp =async (fuses, done)=> {
       formulaD = 0
       formulaE = 0
 
-      if(minuteGapsZoneA >= (period.coverage * period.min30sec))
+      if(zonesA.length >= minCoverage)
         formulaA = ( fuse.score ) * ( letterA.multiplier ) * ( period.reward ) * ( period.boost )
-      if(minuteGapsZoneB >= (period.coverage * period.min30sec))
+      if(zonesB.length >= minCoverage)
         formulaB = ( fuse.score ) * ( letterB.multiplier ) * ( period.reward ) * ( period.boost )
-      if(minuteGapsZoneC >= (period.coverage * period.min30sec))
+      if(zonesC.length >= minCoverage)
         formulaC = ( fuse.score ) * ( letterC.multiplier ) * ( period.reward ) * ( period.boost )
-      if(minuteGapsZoneD >= (period.coverage * period.min30sec))
+      if(zonesD.length >= minCoverage)
         formulaD = ( fuse.score ) * ( letterD.multiplier ) * ( period.reward ) * ( period.boost )
-      if(minuteGapsZoneE >= (period.coverage * period.min30sec))
+      if(zonesE.length >= (period.coverage * period.min30sec))
         formulaE = ( fuse.score ) * ( letterE.multiplier ) * ( period.reward ) * ( period.boost )
 
       transformedScore = formulaA + formulaB + formulaC + formulaD + formulaE
