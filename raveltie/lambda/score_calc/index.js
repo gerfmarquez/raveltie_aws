@@ -626,7 +626,6 @@ let fillTimestamps =async (imeisMap)=> {
   //sort once after extracting 
   await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
 
-    console.log("### fill timestamps IMEI " + JSON.stringify(mainImei.imei))
 
     try {//Skip Fillings Exception
 
@@ -641,15 +640,11 @@ let fillTimestamps =async (imeisMap)=> {
         var delay = location.timestamp - last
         if(delay > 0) {
 
-          console.log("### delay "+delay)
-
           var missing = (delay - timestampOffset) / timestampOffset
-          console.log("### missing:"+missing)
           if(missing > 1) {
             for(i =1; i < 1+missing; i++ ) {
 
               var filling = last + (i * timestampOffset)
-              console.log("### filling" + (i * timestampOffset))
 
               var locationCopy = Object.assign({},location)
               locationCopy.timestamp = filling
@@ -664,6 +659,7 @@ let fillTimestamps =async (imeisMap)=> {
         
         last = location.timestamp
       })
+
     } catch(skipFillingsException) {
       if(skipFillingsException instanceof Error) {
           throw skipFillingsException
