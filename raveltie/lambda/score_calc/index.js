@@ -41,6 +41,7 @@
 {
   var PrecheckBreakException = {}
   var SkipMainBreakException = {}
+  var SkipFillingsException = {}
   var timestampOffset = 30 * 1000//30 seconds
   var zones = [
     {'zone':'A','radius':12400,'multiplier':0.01},/* 1% */
@@ -85,6 +86,8 @@ exports.handler = async (event)=> {
    })
     // console.log(imeisMap)
     await sortTimestamps(imeisMap)
+
+    await fillTimestamps(imeisMap)
 
     await detectOverlaps(imeisMap,async (imei,overlap)=> {
         imei.overlapping.push({'imei':overlap.imei})
@@ -188,6 +191,16 @@ let detectOverlaps =async (imeisMap,done)=> {
 	      if(precheckBreakException instanceof Error) throw precheckBreakException
   		}
     }) //end of secondary
+
+    if(mainImei.overlapping.length === 0) {
+
+    	await done(mainImei,mainImei)
+
+    	console.log("Adding Pioneer Overlapping Imei By Reference"+mainImei.imei)
+
+    }
+
+
   })//end of main
 
 }
@@ -398,6 +411,12 @@ let fuseStamp =async (fuses, done)=> {
 
       await done(imei,transformedScore)
 
+
+      if(imei === overlapImei) {
+      	console.log("Ignoring Same Pioneer Imei Scoring")
+      	return
+      }
+
       formulaA = 0
       formulaB = 0
       formulaC = 0
@@ -602,6 +621,58 @@ let sortTimestamps =async (imeisMap)=> {
     }
   })
 }
+let fillTimestamps =async (imeisMap)=> {
+
+  //sort once after extracting 
+  await imeisMap.forEach(async (mainImei, mainImeiKey)=> {
+
+    console.log("### fill timestamps IMEI " + JSON.stringify(mainImei.imei))
+
+    try {//Skip Fillings Exception
+
+      var length = mainImei.locations.length
+      var last = mainImei.locations[0]
+      await mainImei.locations.forEach(async (location, locIndex, locArray)=> {
+
+        if(locIndex >= length) {
+          throw SkipFillingsException
+        }
+
+        var delay = location.timestamp - last
+        if(delay > 0) {
+
+          console.log("### delay "+delay)
+
+          var missing = (delay - timestampOffset) / timestampOffset
+          console.log("### missing:"+missing)
+          if(missing > 1) {
+            for(i =1; i < 1+missing; i++ ) {
+
+              var filling = last + (i * timestampOffset)
+              console.log("### filling" + (i * timestampOffset))
+
+              var locationCopy = Object.assign({},location)
+              locationCopy.timestamp = filling
+
+              locArray.push(locationCopy)
+            }
+
+            last = location.timestamp + (missing * timestampOffset)
+            return
+          }
+        }
+        
+        last = location.timestamp
+      })
+    } catch(skipFillingsException) {
+      if(skipFillingsException instanceof Error) {
+          throw skipFillingsException
+      } 
+    }
+  })
+  sortTimestamps(imeisMap)
+}
+
 let transformRaveltieData =async (imeisMap,data)=> {
   var imeiMapItem = null
   if(imeisMap.has(data.imei)) {
